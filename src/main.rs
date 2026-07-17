@@ -1,13 +1,21 @@
-use ember::{Lexer, Parser};
+use std::{error::Error, fs};
 
-fn main() {
-    let source = "let x = 1 + 2;";
+use ember::{Interpreter, Lexer, Parser};
 
-    let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize().unwrap();
+fn main() -> Result<(), Box<dyn Error>> {
+    let path = std::env::args().nth(1).unwrap_or_else(|| {
+        eprintln!("Usage: ember <file>");
+        std::process::exit(1);
+    });
 
-    let mut parser = Parser::new(&tokens);
-    let program = parser.parse_program().unwrap();
+    let source = fs::read_to_string(path)?;
 
-    println!("{:#?}", program);
+    let tokens = Lexer::new(&source).tokenize().unwrap();
+    let program = Parser::new(&tokens).parse_program().unwrap();
+
+    let result = Interpreter::new().run(&program).unwrap();
+
+    println!("{result:?}");
+
+    Ok(())
 }
