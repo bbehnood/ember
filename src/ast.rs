@@ -23,5 +23,5 @@ pub enum Statement<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program<'a> {
-    statements: Vec<Statement<'a>>,
+    pub statements: Vec<Statement<'a>>,
 }
