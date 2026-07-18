@@ -6,13 +6,21 @@ pub struct Sema<'a> {
     variables: HashSet<&'a [u8]>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SemaError<'a> {
-    UndefinedVariable(&'a [u8]),
-    DuplicateVariable(&'a [u8]),
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum SemaError {
+    #[error("undefined variable '{0}'")]
+    UndefinedVariable(String),
+
+    #[error("variable '{0}' is already defined")]
+    DuplicateVariable(String),
+}
+
+fn name_to_string(name: &[u8]) -> String {
+    String::from_utf8_lossy(name).into_owned()
 }
 
 impl<'a> Sema<'a> {
+    #[must_use]
     pub fn new() -> Self {
         Sema { variables: HashSet::new() }
     }
@@ -20,7 +28,7 @@ impl<'a> Sema<'a> {
     pub fn check_program(
         &mut self,
         program: &Program<'a>,
-    ) -> Result<(), SemaError<'a>> {
+    ) -> Result<(), SemaError> {
         for stmt in &program.statements {
             self.check_statement(stmt)?;
         }
@@ -31,13 +39,15 @@ impl<'a> Sema<'a> {
     fn check_statement(
         &mut self,
         stmt: &Statement<'a>,
-    ) -> Result<(), SemaError<'a>> {
+    ) -> Result<(), SemaError> {
         match stmt {
             Statement::Let { name, value } => {
                 self.check_expr(value)?;
 
                 if self.variables.contains(name) {
-                    return Err(SemaError::DuplicateVariable(name));
+                    return Err(SemaError::DuplicateVariable(name_to_string(
+                        name,
+                    )));
                 }
 
                 self.variables.insert(*name);
@@ -53,13 +63,15 @@ impl<'a> Sema<'a> {
         }
     }
 
-    fn check_expr(&self, expr: &Expr<'a>) -> Result<(), SemaError<'a>> {
+    fn check_expr(&self, expr: &Expr<'a>) -> Result<(), SemaError> {
         match expr {
             Expr::Number(_) => Ok(()),
 
             Expr::Identifier(name) => {
                 if !self.variables.contains(name) {
-                    return Err(SemaError::UndefinedVariable(name));
+                    return Err(SemaError::UndefinedVariable(name_to_string(
+                        name,
+                    )));
                 }
 
                 Ok(())
@@ -75,12 +87,18 @@ impl<'a> Sema<'a> {
     }
 }
 
+impl Default for Sema<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ast::{BinaryOp, Expr, Program, Statement};
 
-    fn check(program: Program<'static>) -> Result<(), SemaError<'static>> {
+    fn check(program: Program<'static>) -> Result<(), SemaError> {
         Sema::new().check_program(&program)
     }
 
@@ -137,7 +155,10 @@ mod tests {
             statements: vec![Statement::Expression(Expr::Identifier(b"x"))],
         };
 
-        assert_eq!(check(program), Err(SemaError::UndefinedVariable(b"x")));
+        assert_eq!(
+            check(program),
+            Err(SemaError::UndefinedVariable("x".to_string()))
+        );
     }
 
     #[test]
@@ -149,7 +170,10 @@ mod tests {
             ],
         };
 
-        assert_eq!(check(program), Err(SemaError::UndefinedVariable(b"x")));
+        assert_eq!(
+            check(program),
+            Err(SemaError::UndefinedVariable("x".to_string()))
+        );
     }
 
     #[test]
@@ -161,7 +185,10 @@ mod tests {
             ],
         };
 
-        assert_eq!(check(program), Err(SemaError::DuplicateVariable(b"x")));
+        assert_eq!(
+            check(program),
+            Err(SemaError::DuplicateVariable("x".to_string()))
+        );
     }
 
     #[test]
@@ -173,7 +200,10 @@ mod tests {
             }],
         };
 
-        assert_eq!(check(program), Err(SemaError::UndefinedVariable(b"x")));
+        assert_eq!(
+            check(program),
+            Err(SemaError::UndefinedVariable("x".to_string()))
+        );
     }
 
     #[test]
@@ -189,6 +219,9 @@ mod tests {
             ],
         };
 
-        assert_eq!(check(program), Err(SemaError::UndefinedVariable(b"y")));
+        assert_eq!(
+            check(program),
+            Err(SemaError::UndefinedVariable("y".to_string()))
+        );
     }
 }

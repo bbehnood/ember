@@ -19,44 +19,62 @@ pub enum Token<'a> {
 }
 
 pub struct Lexer<'a> {
-    bytes: &'a [u8],
+    input: &'a [u8],
     position: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
 pub enum LexError {
+    #[error("unexpected character '{0}'")]
     UnexpectedChar(char),
+
+    #[error("invalid number literal")]
     InvalidNumber,
 }
 
+impl std::fmt::Display for Token<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::Let => write!(f, "'let'"),
+            Token::Identifier(name) => {
+                write!(f, "identifier '{}'", String::from_utf8_lossy(name))
+            }
+            Token::Number(n) => write!(f, "number '{n}'"),
+            Token::Plus => write!(f, "'+'"),
+            Token::Minus => write!(f, "'-'"),
+            Token::Star => write!(f, "'*'"),
+            Token::Slash => write!(f, "'/'"),
+            Token::Equal => write!(f, "'='"),
+            Token::Semicolon => write!(f, "';'"),
+            Token::LeftParen => write!(f, "'('"),
+            Token::RightParen => write!(f, "')'"),
+            Token::EOF => write!(f, "end of input"),
+        }
+    }
+}
+
 impl<'a> Lexer<'a> {
-    pub fn new(input: &'a str) -> Lexer<'a> {
-        Lexer { bytes: input.as_bytes(), position: 0 }
+    #[must_use]
+    pub fn new(input: &'a [u8]) -> Lexer<'a> {
+        Lexer { input, position: 0 }
     }
 
     pub fn tokenize(&mut self) -> Result<Vec<Token<'a>>, LexError> {
         let mut tokens = Vec::new();
+        let mut eof = false;
 
-        loop {
+        while !eof {
             let token = self.next_token()?;
-            let eof = token == Token::EOF;
+            eof = token == Token::EOF;
 
             tokens.push(token);
-
-            if eof {
-                break;
-            }
         }
 
         Ok(tokens)
     }
 
     fn current(&self) -> Option<u8> {
-        self.bytes.get(self.position).copied()
-    }
-
-    fn _peek(&self) -> Option<u8> {
-        self.bytes.get(self.position + 1).copied()
+        self.input.get(self.position).copied()
     }
 
     fn advance(&mut self) -> Option<u8> {
@@ -86,7 +104,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let ident = &self.bytes[start..self.position];
+        let ident = &self.input[start..self.position];
 
         match ident {
             b"let" => Token::Let,
@@ -105,7 +123,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let string = std::str::from_utf8(&self.bytes[start..self.position])
+        let string = std::str::from_utf8(&self.input[start..self.position])
             .expect("Only ASCII digits are being consumed");
 
         let number =
@@ -160,21 +178,21 @@ mod tests {
 
     #[test]
     fn empty_input() {
-        let mut lexer = Lexer::new("");
+        let mut lexer = Lexer::new("".as_bytes());
 
         assert_eq!(lexer.tokenize().unwrap(), vec![Token::EOF]);
     }
 
     #[test]
     fn lex_keyword() {
-        let mut lexer = Lexer::new("let");
+        let mut lexer = Lexer::new("let".as_bytes());
 
         assert_eq!(lexer.tokenize().unwrap(), vec![Token::Let, Token::EOF,]);
     }
 
     #[test]
     fn lex_identifier() {
-        let mut lexer = Lexer::new("hello");
+        let mut lexer = Lexer::new("hello".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),
@@ -184,7 +202,7 @@ mod tests {
 
     #[test]
     fn lex_identifier_with_underscore_and_digits() {
-        let mut lexer = Lexer::new("_foo123");
+        let mut lexer = Lexer::new("_foo123".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),
@@ -194,7 +212,7 @@ mod tests {
 
     #[test]
     fn lex_number() {
-        let mut lexer = Lexer::new("12345");
+        let mut lexer = Lexer::new("12345".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),
@@ -204,7 +222,7 @@ mod tests {
 
     #[test]
     fn lex_operators() {
-        let mut lexer = Lexer::new("+-*/=;()");
+        let mut lexer = Lexer::new("+-*/=;()".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),
@@ -224,7 +242,7 @@ mod tests {
 
     #[test]
     fn lex_variable_declaration() {
-        let mut lexer = Lexer::new("let x = 42;");
+        let mut lexer = Lexer::new("let x = 42;".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),
@@ -241,7 +259,7 @@ mod tests {
 
     #[test]
     fn lex_expression() {
-        let mut lexer = Lexer::new("1 + 2 * (3 - 4) / 5");
+        let mut lexer = Lexer::new("1 + 2 * (3 - 4) / 5".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),
@@ -264,7 +282,7 @@ mod tests {
 
     #[test]
     fn ignores_whitespace() {
-        let mut lexer = Lexer::new(" \n\t let   foo \r\n =  10 ; ");
+        let mut lexer = Lexer::new(" \n\t let   foo \r\n =  10 ; ".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),
@@ -281,28 +299,29 @@ mod tests {
 
     #[test]
     fn unexpected_character() {
-        let mut lexer = Lexer::new("@");
+        let mut lexer = Lexer::new("@".as_bytes());
 
         assert_eq!(lexer.tokenize(), Err(LexError::UnexpectedChar('@')));
     }
 
     #[test]
     fn unexpected_character_after_valid_tokens() {
-        let mut lexer = Lexer::new("let x = @");
+        let mut lexer = Lexer::new("let x = @".as_bytes());
 
         assert_eq!(lexer.tokenize(), Err(LexError::UnexpectedChar('@')));
     }
 
     #[test]
     fn invalid_number_overflow() {
-        let mut lexer = Lexer::new("999999999999999999999999999999999999");
+        let mut lexer =
+            Lexer::new("999999999999999999999999999999999999".as_bytes());
 
         assert_eq!(lexer.tokenize(), Err(LexError::InvalidNumber));
     }
 
     #[test]
     fn multiple_identifiers() {
-        let mut lexer = Lexer::new("foo bar baz");
+        let mut lexer = Lexer::new("foo bar baz".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),
@@ -317,7 +336,7 @@ mod tests {
 
     #[test]
     fn identifier_named_like_keyword_prefix() {
-        let mut lexer = Lexer::new("letter");
+        let mut lexer = Lexer::new("letter".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),
@@ -327,7 +346,7 @@ mod tests {
 
     #[test]
     fn consecutive_numbers() {
-        let mut lexer = Lexer::new("123 456");
+        let mut lexer = Lexer::new("123 456".as_bytes());
 
         assert_eq!(
             lexer.tokenize().unwrap(),

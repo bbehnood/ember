@@ -8,19 +8,25 @@ pub struct Parser<'a> {
     position: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ParseError<'a> {
-    UnexpectedToken { expected: Token<'a>, found: Token<'a> },
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ParseError {
+    #[error("expected {expected}, found {found}")]
+    UnexpectedToken { expected: String, found: String },
+
+    #[error("expected an identifier")]
     ExpectedIdentifier,
+
+    #[error("expected an expression")]
     ExpectedExpression,
 }
 
 impl<'a> Parser<'a> {
+    #[must_use]
     pub fn new(tokens: &'a [Token<'a>]) -> Self {
         Self { tokens, position: 0 }
     }
 
-    pub fn parse_program(&mut self) -> Result<Program<'a>, ParseError<'a>> {
+    pub fn parse_program(&mut self) -> Result<Program<'a>, ParseError> {
         let mut statements = Vec::new();
 
         while self.current() != Token::EOF {
@@ -38,19 +44,21 @@ impl<'a> Parser<'a> {
         self.position += 1;
     }
 
-    fn expect(&mut self, expected: Token<'a>) -> Result<(), ParseError<'a>> {
+    fn expect(&mut self, expected: Token<'a>) -> Result<(), ParseError> {
         if self.current() == expected {
             self.advance();
             Ok(())
         } else {
-            Err(ParseError::UnexpectedToken { expected, found: self.current() })
+            Err(ParseError::UnexpectedToken {
+                expected: expected.to_string(),
+                found: self.current().to_string(),
+            })
         }
     }
 
-    fn expect_identifier(&mut self) -> Result<&'a [u8], ParseError<'a>> {
+    fn expect_identifier(&mut self) -> Result<&'a [u8], ParseError> {
         match self.current() {
             Token::Identifier(name) => {
-                let name = name;
                 self.advance();
                 Ok(name)
             }
@@ -58,20 +66,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_statement(&mut self) -> Result<Statement<'a>, ParseError<'a>> {
+    fn parse_statement(&mut self) -> Result<Statement<'a>, ParseError> {
         match self.current() {
             Token::Let => self.parse_let(),
             _ => self.parse_expression_statement(),
         }
     }
 
-    fn parse_expression(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_expression(&mut self) -> Result<Expr<'a>, ParseError> {
         self.parse_addition()
     }
 
     fn parse_expression_statement(
         &mut self,
-    ) -> Result<Statement<'a>, ParseError<'a>> {
+    ) -> Result<Statement<'a>, ParseError> {
         let expr = self.parse_expression()?;
 
         self.expect(Token::Semicolon)?;
@@ -79,7 +87,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::Expression(expr))
     }
 
-    fn parse_let(&mut self) -> Result<Statement<'a>, ParseError<'a>> {
+    fn parse_let(&mut self) -> Result<Statement<'a>, ParseError> {
         self.expect(Token::Let)?;
 
         let name = self.expect_identifier()?;
@@ -92,10 +100,8 @@ impl<'a> Parser<'a> {
 
         Ok(Statement::Let { name, value })
     }
-}
 
-impl<'a> Parser<'a> {
-    fn parse_addition(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_addition(&mut self) -> Result<Expr<'a>, ParseError> {
         let mut expr = self.parse_multiplication()?;
 
         loop {
@@ -119,7 +125,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn parse_multiplication(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_multiplication(&mut self) -> Result<Expr<'a>, ParseError> {
         let mut expr = self.parse_primary()?;
 
         loop {
@@ -143,7 +149,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn parse_primary(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_primary(&mut self) -> Result<Expr<'a>, ParseError> {
         match self.current() {
             Token::Number(n) => {
                 self.advance();
@@ -180,7 +186,7 @@ mod tests {
         lexer::Token,
     };
 
-    fn parse<'a>(tokens: &'a [Token]) -> Result<Program<'a>, ParseError<'a>> {
+    fn parse<'a>(tokens: &'a [Token]) -> Result<Program<'a>, ParseError> {
         Parser::new(tokens).parse_program()
     }
 
@@ -338,8 +344,8 @@ mod tests {
         assert_eq!(
             err,
             ParseError::UnexpectedToken {
-                expected: Token::Semicolon,
-                found: Token::EOF,
+                expected: Token::Semicolon.to_string(),
+                found: Token::EOF.to_string(),
             }
         );
     }
@@ -359,8 +365,8 @@ mod tests {
         assert_eq!(
             err,
             ParseError::UnexpectedToken {
-                expected: Token::RightParen,
-                found: Token::Semicolon,
+                expected: Token::RightParen.to_string(),
+                found: Token::Semicolon.to_string(),
             }
         );
     }
