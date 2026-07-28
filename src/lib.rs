@@ -1,3 +1,4 @@
+pub mod ast;
 pub mod lexer;
 
-pub use lexer::{Lexer, Token};
+pub use lexer::Lexer;
