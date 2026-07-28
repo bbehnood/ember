@@ -27,7 +27,7 @@ impl<'a> Parser<'a> {
         Self { tokens, current: 0 }
     }
 
-    pub fn parse_program(&mut self) -> Result<Program<'a>, ParseError> {
+    pub fn parse(&mut self) -> Result<Program<'a>, ParseError> {
         let mut statements = Vec::new();
 
         while self.peek() != Token::Eof {
@@ -187,7 +187,7 @@ mod tests {
     use crate::lexer::Token;
 
     fn parse<'a>(tokens: &'a [Token<'a>]) -> Result<Program<'a>, ParseError> {
-        Parser::new(tokens).parse_program()
+        Parser::new(tokens).parse()
     }
 
     #[test]
