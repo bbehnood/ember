@@ -34,6 +34,27 @@ pub enum LexError {
     InvalidNumber,
 }
 
+impl std::fmt::Display for Token<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::Let => write!(f, "'let'"),
+            Token::Identifier(name) => {
+                write!(f, "identifier '{}'", String::from_utf8_lossy(name))
+            }
+            Token::Number(n) => write!(f, "number '{n}'"),
+            Token::Plus => write!(f, "'+'"),
+            Token::Minus => write!(f, "'-'"),
+            Token::Star => write!(f, "'*'"),
+            Token::Slash => write!(f, "'/'"),
+            Token::Equal => write!(f, "'='"),
+            Token::Semicolon => write!(f, "';'"),
+            Token::LeftParen => write!(f, "'('"),
+            Token::RightParen => write!(f, "')'"),
+            Token::Eof => write!(f, "end of input"),
+        }
+    }
+}
+
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a [u8]) -> Self {
         Self { input, current: 0 }
