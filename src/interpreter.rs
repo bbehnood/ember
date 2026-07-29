@@ -123,3 +123,275 @@ impl Default for Interpreter<'_> {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{BinaryOp, Expr, Program, Statement};
+
+    fn eval(expr: Expr<'static>) -> Result<Value, RuntimeError> {
+        Interpreter::new().eval(&expr)
+    }
+
+    fn run(program: Program<'static>) -> Result<(), RuntimeError> {
+        Interpreter::new().run(&program)
+    }
+
+    #[test]
+    fn number_literal() {
+        assert_eq!(eval(Expr::Number(42)), Ok(Value::Number(42)));
+    }
+
+    #[test]
+    fn addition() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(1)),
+            operator: BinaryOp::Add,
+            right: Box::new(Expr::Number(2)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Number(3)));
+    }
+
+    #[test]
+    fn subtraction() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(5)),
+            operator: BinaryOp::Sub,
+            right: Box::new(Expr::Number(3)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Number(2)));
+    }
+
+    #[test]
+    fn multiplication() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(4)),
+            operator: BinaryOp::Mul,
+            right: Box::new(Expr::Number(5)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Number(20)));
+    }
+
+    #[test]
+    fn division() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(10)),
+            operator: BinaryOp::Div,
+            right: Box::new(Expr::Number(3)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Number(3)));
+    }
+
+    #[test]
+    fn nested_expression_precedence() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(1)),
+            operator: BinaryOp::Add,
+            right: Box::new(Expr::Binary {
+                left: Box::new(Expr::Number(2)),
+                operator: BinaryOp::Mul,
+                right: Box::new(Expr::Number(3)),
+            }),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Number(7)));
+    }
+
+    #[test]
+    fn divide_by_zero() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(1)),
+            operator: BinaryOp::Div,
+            right: Box::new(Expr::Number(0)),
+        };
+
+        assert_eq!(eval(expr), Err(RuntimeError::DivideByZero));
+    }
+
+    #[test]
+    fn addition_overflow() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(i64::MAX)),
+            operator: BinaryOp::Add,
+            right: Box::new(Expr::Number(1)),
+        };
+
+        assert_eq!(eval(expr), Err(RuntimeError::ArithmeticOverflow));
+    }
+
+    #[test]
+    fn subtraction_overflow() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(i64::MIN)),
+            operator: BinaryOp::Sub,
+            right: Box::new(Expr::Number(1)),
+        };
+
+        assert_eq!(eval(expr), Err(RuntimeError::ArithmeticOverflow));
+    }
+
+    #[test]
+    fn multiplication_overflow() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(i64::MAX)),
+            operator: BinaryOp::Mul,
+            right: Box::new(Expr::Number(2)),
+        };
+
+        assert_eq!(eval(expr), Err(RuntimeError::ArithmeticOverflow));
+    }
+
+    #[test]
+    fn division_overflow() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(i64::MIN)),
+            operator: BinaryOp::Div,
+            right: Box::new(Expr::Number(-1)),
+        };
+
+        assert_eq!(eval(expr), Err(RuntimeError::ArithmeticOverflow));
+    }
+
+    #[test]
+    fn divide_by_zero_and_overflow() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(i64::MIN)),
+            operator: BinaryOp::Div,
+            right: Box::new(Expr::Number(0)),
+        };
+
+        assert_eq!(eval(expr), Err(RuntimeError::DivideByZero));
+    }
+
+    #[test]
+    fn empty_program() {
+        let program = Program { statements: vec![] };
+
+        assert_eq!(run(program), Ok(()));
+    }
+
+    #[test]
+    fn let_and_use_variable() {
+        let program = Program {
+            statements: vec![
+                Statement::Let { name: b"x", value: Expr::Number(10) },
+                Statement::Expression(Expr::Identifier(b"x")),
+            ],
+        };
+
+        assert_eq!(run(program), Ok(()));
+    }
+
+    #[test]
+    fn let_statement() {
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .run(&Program {
+                statements: vec![Statement::Let {
+                    name: b"x",
+                    value: Expr::Binary {
+                        left: Box::new(Expr::Number(2)),
+                        operator: BinaryOp::Mul,
+                        right: Box::new(Expr::Number(21)),
+                    },
+                }],
+            })
+            .unwrap();
+
+        assert_eq!(
+            interpreter.eval(&Expr::Identifier(b"x")),
+            Ok(Value::Number(42))
+        );
+    }
+
+    #[test]
+    fn rebinding_in_nested_block() {
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .run(&Program {
+                statements: vec![
+                    Statement::Let { name: b"x", value: Expr::Number(1) },
+                    Statement::Block(vec![Statement::Let {
+                        name: b"x",
+                        value: Expr::Number(2),
+                    }]),
+                ],
+            })
+            .unwrap();
+
+        assert_eq!(
+            interpreter.eval(&Expr::Identifier(b"x")),
+            Ok(Value::Number(1))
+        );
+    }
+
+    #[test]
+    fn outer_scope_variables() {
+        let program = Program {
+            statements: vec![
+                Statement::Let { name: b"x", value: Expr::Number(5) },
+                Statement::Block(vec![Statement::Expression(
+                    Expr::Identifier(b"x"),
+                )]),
+            ],
+        };
+
+        assert_eq!(run(program), Ok(()));
+    }
+
+    #[test]
+    fn nested_blocks() {
+        let program = Program {
+            statements: vec![Statement::Block(vec![Statement::Block(vec![
+                Statement::Let { name: b"x", value: Expr::Number(1) },
+            ])])],
+        };
+
+        assert_eq!(run(program), Ok(()));
+    }
+
+    #[test]
+    fn runtime_error_in_let() {
+        let program = Program {
+            statements: vec![Statement::Let {
+                name: b"x",
+                value: Expr::Binary {
+                    left: Box::new(Expr::Number(1)),
+                    operator: BinaryOp::Div,
+                    right: Box::new(Expr::Number(0)),
+                },
+            }],
+        };
+
+        assert_eq!(run(program), Err(RuntimeError::DivideByZero));
+    }
+
+    #[test]
+    fn runtime_error_in_block() {
+        let program = Program {
+            statements: vec![Statement::Block(vec![Statement::Expression(
+                Expr::Binary {
+                    left: Box::new(Expr::Number(1)),
+                    operator: BinaryOp::Div,
+                    right: Box::new(Expr::Number(0)),
+                },
+            )])],
+        };
+
+        assert_eq!(run(program), Err(RuntimeError::DivideByZero));
+    }
+
+    #[test]
+    fn print_statement() {
+        let program =
+            Program { statements: vec![Statement::Print(Expr::Number(42))] };
+
+        assert_eq!(run(program), Ok(()));
+    }
+}
