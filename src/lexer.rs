@@ -16,6 +16,8 @@ pub enum Token<'a> {
 
     LeftParen,
     RightParen,
+    LeftBrace,
+    RightBrace,
 
     Eof,
 }
@@ -50,6 +52,8 @@ impl std::fmt::Display for Token<'_> {
             Token::Semicolon => write!(f, "';'"),
             Token::LeftParen => write!(f, "'('"),
             Token::RightParen => write!(f, "')'"),
+            Token::LeftBrace => write!(f, "'{{'"),
+            Token::RightBrace => write!(f, "'}}'"),
             Token::Eof => write!(f, "end of input"),
         }
     }
@@ -165,6 +169,10 @@ impl<'a> Lexer<'a> {
                     b'(' => Token::LeftParen,
 
                     b')' => Token::RightParen,
+
+                    b'{' => Token::LeftBrace,
+
+                    b'}' => Token::RightBrace,
 
                     _ => return Err(LexError::UnexpectedChar(ch as char)),
                 }

@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::ast::{Expr, Program, Statement};
 
 pub struct Sema<'a> {
-    variables: HashSet<&'a [u8]>,
+    scopes: Vec<HashSet<&'a [u8]>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -24,7 +24,7 @@ fn name_as_string(name: &[u8]) -> String {
 impl<'a> Sema<'a> {
     #[must_use]
     pub fn new() -> Self {
-        Self { variables: HashSet::new() }
+        Self { scopes: vec![HashSet::new()] }
     }
 
     pub fn check(&mut self, program: &Program<'a>) -> Result<(), SemaError> {
@@ -43,13 +43,24 @@ impl<'a> Sema<'a> {
             Statement::Let { name, value } => {
                 self.check_expr(value)?;
 
-                if self.variables.contains(name) {
+                if self.scopes.last().unwrap().contains(name) {
                     return Err(SemaError::DuplicateVariable(name_as_string(
                         name,
                     )));
                 }
 
-                self.variables.insert(name);
+                self.scopes.last_mut().unwrap().insert(name);
+
+                Ok(())
+            }
+
+            Statement::Block(statements) => {
+                self.scopes.push(HashSet::new());
+                for stmt in statements {
+                    self.check_statement(stmt)?;
+                }
+
+                self.scopes.pop();
 
                 Ok(())
             }
@@ -67,7 +78,7 @@ impl<'a> Sema<'a> {
             Expr::Number(_) => Ok(()),
 
             Expr::Identifier(name) => {
-                if !self.variables.contains(name) {
+                if !self.scopes.iter().rev().any(|scope| scope.contains(name)) {
                     return Err(SemaError::UndefinedVariable(name_as_string(
                         name,
                     )));

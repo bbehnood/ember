@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::ast::{BinaryOp, Expr, Program, Statement};
 
 pub struct Interpreter<'a> {
-    variables: HashMap<&'a [u8], Value>,
+    scopes: Vec<HashMap<&'a [u8], Value>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +31,7 @@ impl std::fmt::Display for Value {
 impl<'a> Interpreter<'a> {
     #[must_use]
     pub fn new() -> Self {
-        Self { variables: HashMap::new() }
+        Self { scopes: vec![HashMap::new()] }
     }
 
     pub fn run(
@@ -53,7 +53,18 @@ impl<'a> Interpreter<'a> {
         match stmt {
             Statement::Let { name, value } => {
                 let value = self.eval(value)?;
-                self.variables.insert(name, value);
+                self.scopes.last_mut().unwrap().insert(name, value);
+
+                Ok(None)
+            }
+
+            Statement::Block(statements) => {
+                self.scopes.push(HashMap::new());
+                for stmt in statements {
+                    self.execute_statement(stmt)?;
+                }
+
+                self.scopes.pop();
 
                 Ok(None)
             }
@@ -67,9 +78,10 @@ impl<'a> Interpreter<'a> {
             Expr::Number(n) => Ok(Value::Number(*n)),
 
             Expr::Identifier(name) => Ok(self
-                .variables
-                .get(name)
-                .copied()
+                .scopes
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(name).copied())
                 .expect("Undefined variables should be caught at sema")),
 
             Expr::Binary { left, operator, right } => {

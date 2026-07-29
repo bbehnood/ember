@@ -73,6 +73,8 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Token::Let => self.parse_let(),
 
+            Token::LeftBrace => self.parse_block(),
+
             _ => self.parse_expression_statement(),
         }
     }
@@ -89,6 +91,20 @@ impl<'a> Parser<'a> {
         self.expect(Token::Semicolon)?;
 
         Ok(Statement::Let { name, value })
+    }
+
+    fn parse_block(&mut self) -> Result<Statement<'a>, ParseError> {
+        self.expect(Token::LeftBrace)?;
+
+        let mut statements = Vec::new();
+
+        while self.peek() != Token::RightBrace && self.peek() != Token::Eof {
+            statements.push(self.parse_statement()?);
+        }
+
+        self.expect(Token::RightBrace)?;
+
+        Ok(Statement::Block(statements))
     }
 
     fn parse_expression_statement(
