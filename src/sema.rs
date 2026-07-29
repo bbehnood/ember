@@ -1,11 +1,17 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::ast::{Expr, Program, Statement};
+use crate::ast::{BinaryOp, Expr, Program, Statement};
 
 pub struct Sema<'a> {
-    scopes: Vec<HashSet<&'a [u8]>>,
+    scopes: Vec<HashMap<&'a [u8], Type>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Type {
+    Number,
+    Boolean,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -15,6 +21,12 @@ pub enum SemaError {
 
     #[error("variable '{0}' is already defined")]
     DuplicateVariable(String),
+
+    #[error("expected {expected}, found {found}")]
+    UnexpectedType { expected: Type, found: Type },
+
+    #[error("mismatched types: '{left}' and '{right}'")]
+    MismatchedTypes { left: Type, right: Type },
 }
 
 fn name_as_string(name: &[u8]) -> String {
@@ -23,10 +35,39 @@ fn name_as_string(name: &[u8]) -> String {
         .to_owned()
 }
 
+struct Signature {
+    lhs: Type,
+    rhs: Type,
+    result: Type,
+}
+
+impl BinaryOp {
+    fn signature(self) -> Signature {
+        match self {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+                Signature {
+                    lhs: Type::Number,
+                    rhs: Type::Number,
+                    result: Type::Number,
+                }
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Number => write!(f, "number"),
+            Type::Boolean => write!(f, "boolean"),
+        }
+    }
+}
+
 impl<'a> Sema<'a> {
     #[must_use]
     pub fn new() -> Self {
-        Self { scopes: vec![HashSet::new()] }
+        Self { scopes: vec![HashMap::new()] }
     }
 
     pub fn check(&mut self, program: &Program<'a>) -> Result<(), SemaError> {
@@ -43,23 +84,27 @@ impl<'a> Sema<'a> {
     ) -> Result<(), SemaError> {
         match stmt {
             Statement::Let { name, value } => {
-                self.check_expr(value)?;
+                let value_type = self.check_expr(value)?;
 
-                if self.scopes.last().unwrap().contains(name) {
+                if self.scopes.last().unwrap().contains_key(name) {
                     return Err(SemaError::DuplicateVariable(name_as_string(
                         name,
                     )));
                 }
 
-                self.scopes.last_mut().unwrap().insert(name);
+                self.scopes.last_mut().unwrap().insert(name, value_type);
 
                 Ok(())
             }
 
-            Statement::Print(expr) => Ok(self.check_expr(expr)?),
+            Statement::Print(expr) => {
+                self.check_expr(expr)?;
+
+                Ok(())
+            }
 
             Statement::Block(statements) => {
-                self.scopes.push(HashSet::new());
+                self.scopes.push(HashMap::new());
                 for stmt in statements {
                     self.check_statement(stmt)?;
                 }
@@ -77,25 +122,38 @@ impl<'a> Sema<'a> {
         }
     }
 
-    fn check_expr(&mut self, expr: &Expr<'a>) -> Result<(), SemaError> {
+    fn check_expr(&mut self, expr: &Expr<'a>) -> Result<Type, SemaError> {
         match expr {
-            Expr::Number(_) => Ok(()),
+            Expr::Number(_) => Ok(Type::Number),
 
-            Expr::Identifier(name) => {
-                if !self.scopes.iter().rev().any(|scope| scope.contains(name)) {
-                    return Err(SemaError::UndefinedVariable(name_as_string(
-                        name,
-                    )));
+            Expr::Boolean(_) => Ok(Type::Boolean),
+
+            Expr::Identifier(name) => self
+                .scopes
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(name).copied())
+                .ok_or_else(|| {
+                    SemaError::UndefinedVariable(name_as_string(name))
+                }),
+
+            Expr::Binary { left, right, operator } => {
+                let left = self.check_expr(left)?;
+                let right = self.check_expr(right)?;
+                let sig = operator.signature();
+
+                if left != sig.lhs || right != sig.rhs {
+                    return Err(SemaError::UnexpectedType {
+                        expected: sig.lhs,
+                        found: left,
+                    });
                 }
 
-                Ok(())
-            }
+                if left != right {
+                    return Err(SemaError::MismatchedTypes { left, right });
+                }
 
-            Expr::Binary { left, right, .. } => {
-                self.check_expr(left)?;
-                self.check_expr(right)?;
-
-                Ok(())
+                Ok(sig.result)
             }
         }
     }
@@ -236,6 +294,25 @@ mod tests {
         assert_eq!(
             check(program),
             Err(SemaError::UndefinedVariable("y".to_string()))
+        );
+    }
+
+    #[test]
+    fn unexpected_type() {
+        let program = Program {
+            statements: vec![Statement::Expression(Expr::Binary {
+                left: Box::new(Expr::Boolean(true)),
+                operator: BinaryOp::Add,
+                right: Box::new(Expr::Boolean(false)),
+            })],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UnexpectedType {
+                expected: Type::Number,
+                found: Type::Boolean
+            })
         );
     }
 }

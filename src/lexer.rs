@@ -2,10 +2,13 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token<'a> {
+    Number(i64),
+    True,
+    False,
+    Identifier(&'a [u8]),
+
     Let,
     Print,
-    Number(i64),
-    Identifier(&'a [u8]),
 
     Plus,
     Minus,
@@ -46,6 +49,8 @@ impl std::fmt::Display for Token<'_> {
                 write!(f, "identifier '{}'", String::from_utf8_lossy(name))
             }
             Token::Number(n) => write!(f, "number '{n}'"),
+            Token::True => write!(f, "boolean 'true'"),
+            Token::False => write!(f, "boolean 'false'"),
             Token::Plus => write!(f, "'+'"),
             Token::Minus => write!(f, "'-'"),
             Token::Star => write!(f, "'*'"),
@@ -113,6 +118,10 @@ impl<'a> Lexer<'a> {
         match ident {
             b"let" => Token::Let,
             b"print" => Token::Print,
+
+            b"true" => Token::True,
+            b"false" => Token::False,
+
             _ => Token::Identifier(ident),
         }
     }

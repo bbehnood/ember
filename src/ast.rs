@@ -1,7 +1,9 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr<'a> {
     Identifier(&'a [u8]),
+
     Number(i64),
+    Boolean(bool),
 
     Binary { left: Box<Expr<'a>>, operator: BinaryOp, right: Box<Expr<'a>> },
 }

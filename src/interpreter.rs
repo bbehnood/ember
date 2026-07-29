@@ -9,6 +9,7 @@ pub struct Interpreter<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Value {
     Number(i64),
+    Boolean(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -24,6 +25,7 @@ impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Number(n) => write!(f, "{n}"),
+            Self::Boolean(b) => write!(f, "{b}"),
         }
     }
 }
@@ -82,6 +84,8 @@ impl<'a> Interpreter<'a> {
         match expr {
             Expr::Number(n) => Ok(Value::Number(*n)),
 
+            Expr::Boolean(b) => Ok(Value::Boolean(*b)),
+
             Expr::Identifier(name) => Ok(self
                 .scopes
                 .iter()
@@ -112,6 +116,8 @@ impl<'a> Interpreter<'a> {
                             .map(Value::Number)
                             .ok_or(RuntimeError::ArithmeticOverflow)
                     }
+
+                    _ => unreachable!(),
                 }
             }
         }
@@ -140,6 +146,11 @@ mod tests {
     #[test]
     fn number_literal() {
         assert_eq!(eval(Expr::Number(42)), Ok(Value::Number(42)));
+    }
+
+    #[test]
+    fn boolean_literal() {
+        assert_eq!(eval(Expr::Boolean(true)), Ok(Value::Boolean(true)))
     }
 
     #[test]

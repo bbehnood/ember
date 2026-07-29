@@ -191,6 +191,17 @@ impl<'a> Parser<'a> {
                 Ok(Expr::Number(n))
             }
 
+            Token::True => {
+                self.advance();
+
+                Ok(Expr::Boolean(true))
+            }
+
+            Token::False => {
+                self.advance();
+                Ok(Expr::Boolean(false))
+            }
+
             Token::Identifier(name) => {
                 self.advance();
 
