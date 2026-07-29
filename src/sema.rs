@@ -18,7 +18,9 @@ pub enum SemaError {
 }
 
 fn name_as_string(name: &[u8]) -> String {
-    unsafe { std::str::from_utf8_unchecked(name).to_owned() }
+    std::str::from_utf8(name)
+        .expect("The lexer only consumes valid ASCII")
+        .to_owned()
 }
 
 impl<'a> Sema<'a> {

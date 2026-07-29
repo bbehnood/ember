@@ -85,10 +85,6 @@ impl<'a> Lexer<'a> {
         self.input.get(self.current).copied()
     }
 
-    fn _peek_next(&self) -> Option<u8> {
-        self.input.get(self.current + 1).copied()
-    }
-
     fn advance(&mut self) {
         self.current += 1;
     }
@@ -132,10 +128,8 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let string = unsafe {
-            // SAFETY: Only valid ASCII gets consumed
-            std::str::from_utf8_unchecked(&self.input[start..self.current])
-        };
+        let string = std::str::from_utf8(&self.input[start..self.current])
+            .expect("Only valid ASCII gets consumed");
 
         let number: i64 =
             string.parse().map_err(|_| LexError::InvalidNumber)?;
