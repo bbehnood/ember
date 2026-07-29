@@ -56,6 +56,7 @@ impl std::fmt::Display for Token<'_> {
 }
 
 impl<'a> Lexer<'a> {
+    #[must_use]
     pub fn new(input: &'a [u8]) -> Self {
         Self { input, current: 0 }
     }

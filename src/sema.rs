@@ -22,6 +22,7 @@ fn name_as_string(name: &[u8]) -> String {
 }
 
 impl<'a> Sema<'a> {
+    #[must_use]
     pub fn new() -> Self {
         Self { variables: HashSet::new() }
     }
@@ -82,6 +83,12 @@ impl<'a> Sema<'a> {
                 Ok(())
             }
         }
+    }
+}
+
+impl Default for Sema<'_> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

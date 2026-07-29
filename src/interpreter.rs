@@ -29,6 +29,7 @@ impl std::fmt::Display for Value {
 }
 
 impl<'a> Interpreter<'a> {
+    #[must_use]
     pub fn new() -> Self {
         Self { variables: HashMap::new() }
     }
@@ -97,5 +98,11 @@ impl<'a> Interpreter<'a> {
                 }
             }
         }
+    }
+}
+
+impl Default for Interpreter<'_> {
+    fn default() -> Self {
+        Self::new()
     }
 }

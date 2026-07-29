@@ -23,6 +23,7 @@ pub enum ParseError {
 }
 
 impl<'a> Parser<'a> {
+    #[must_use]
     pub fn new(tokens: &'a [Token]) -> Self {
         Self { tokens, current: 0 }
     }
