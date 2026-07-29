@@ -18,6 +18,8 @@ pub enum BinaryOp {
 pub enum Statement<'a> {
     Let { name: &'a [u8], value: Expr<'a> },
 
+    Print(Expr<'a>),
+
     Block(Vec<Statement<'a>>),
 
     Expression(Expr<'a>),

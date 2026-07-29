@@ -12,9 +12,7 @@ fn main() -> Result<()> {
     let source =
         fs::read(&path).with_context(|| format!("could not read '{path}'"))?;
 
-    if let Some(value) = run(&source)? {
-        println!("{value}");
-    }
+    run(&source)?;
 
     Ok(())
 }

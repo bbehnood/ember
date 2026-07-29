@@ -34,28 +34,30 @@ impl<'a> Interpreter<'a> {
         Self { scopes: vec![HashMap::new()] }
     }
 
-    pub fn run(
-        &mut self,
-        program: &Program<'a>,
-    ) -> Result<Option<Value>, RuntimeError> {
-        let mut last = None;
+    pub fn run(&mut self, program: &Program<'a>) -> Result<(), RuntimeError> {
         for stmt in &program.statements {
-            last = self.execute_statement(stmt)?;
+            self.execute_statement(stmt)?;
         }
 
-        Ok(last)
+        Ok(())
     }
 
     fn execute_statement(
         &mut self,
         stmt: &Statement<'a>,
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<(), RuntimeError> {
         match stmt {
             Statement::Let { name, value } => {
                 let value = self.eval(value)?;
                 self.scopes.last_mut().unwrap().insert(name, value);
 
-                Ok(None)
+                Ok(())
+            }
+
+            Statement::Print(expr) => {
+                let value = self.eval(expr)?;
+                println!("{value}");
+                Ok(())
             }
 
             Statement::Block(statements) => {
@@ -66,10 +68,13 @@ impl<'a> Interpreter<'a> {
 
                 self.scopes.pop();
 
-                Ok(None)
+                Ok(())
             }
 
-            Statement::Expression(expr) => Ok(Some(self.eval(expr)?)),
+            Statement::Expression(expr) => {
+                self.eval(expr)?;
+                Ok(())
+            }
         }
     }
 

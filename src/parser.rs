@@ -75,6 +75,8 @@ impl<'a> Parser<'a> {
 
             Token::LeftBrace => self.parse_block(),
 
+            Token::Print => self.parse_print(),
+
             _ => self.parse_expression_statement(),
         }
     }
@@ -91,6 +93,18 @@ impl<'a> Parser<'a> {
         self.expect(Token::Semicolon)?;
 
         Ok(Statement::Let { name, value })
+    }
+
+    fn parse_print(&mut self) -> Result<Statement<'a>, ParseError> {
+        self.expect(Token::Print)?;
+        self.expect(Token::LeftParen)?;
+
+        let expr = self.parse_expression()?;
+
+        self.expect(Token::RightParen)?;
+        self.expect(Token::Semicolon)?;
+
+        Ok(Statement::Print(expr))
     }
 
     fn parse_block(&mut self) -> Result<Statement<'a>, ParseError> {

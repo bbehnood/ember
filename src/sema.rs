@@ -54,6 +54,8 @@ impl<'a> Sema<'a> {
                 Ok(())
             }
 
+            Statement::Print(expr) => Ok(self.check_expr(expr)?),
+
             Statement::Block(statements) => {
                 self.scopes.push(HashSet::new());
                 for stmt in statements {

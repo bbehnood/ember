@@ -3,6 +3,7 @@ use thiserror::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token<'a> {
     Let,
+    Print,
     Number(i64),
     Identifier(&'a [u8]),
 
@@ -40,6 +41,7 @@ impl std::fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Token::Let => write!(f, "'let'"),
+            Token::Print => write!(f, "'print'"),
             Token::Identifier(name) => {
                 write!(f, "identifier '{}'", String::from_utf8_lossy(name))
             }
@@ -114,6 +116,7 @@ impl<'a> Lexer<'a> {
 
         match ident {
             b"let" => Token::Let,
+            b"print" => Token::Print,
             _ => Token::Identifier(ident),
         }
     }
