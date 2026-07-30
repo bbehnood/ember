@@ -12,6 +12,7 @@ pub enum Token<'a> {
 
     If,
     Else,
+    While,
 
     Plus,
     Minus,
@@ -60,6 +61,7 @@ impl std::fmt::Display for Token<'_> {
             Token::Print => write!(f, "'print'"),
             Token::If => write!(f, "'if'"),
             Token::Else => write!(f, "'else'"),
+            Token::While => write!(f, "'while'"),
             Token::Identifier(name) => {
                 write!(f, "identifier '{}'", String::from_utf8_lossy(name))
             }
@@ -144,6 +146,7 @@ impl<'a> Lexer<'a> {
 
             b"if" => Token::If,
             b"else" => Token::Else,
+            b"while" => Token::While,
 
             b"true" => Token::True,
             b"false" => Token::False,

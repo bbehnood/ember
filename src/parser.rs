@@ -79,6 +79,8 @@ impl<'a> Parser<'a> {
 
             Token::If => self.parse_if(),
 
+            Token::While => self.parse_while(),
+
             _ => self.parse_expression_statement(),
         }
     }
@@ -137,6 +139,15 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Statement::If { condition, statement, else_clause })
+    }
+
+    fn parse_while(&mut self) -> Result<Statement<'a>, ParseError> {
+        self.expect(Token::While)?;
+
+        let condition = self.parse_expression()?;
+        let statement = Box::new(self.parse_statement()?);
+
+        Ok(Statement::While { condition, statement })
     }
 
     fn parse_expression_statement(

@@ -43,6 +43,11 @@ pub enum Statement<'a> {
         else_clause: Option<Box<Statement<'a>>>,
     },
 
+    While {
+        condition: Expr<'a>,
+        statement: Box<Statement<'a>>,
+    },
+
     Expression(Expr<'a>),
 }
 

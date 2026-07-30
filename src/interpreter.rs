@@ -85,6 +85,14 @@ impl<'a> Interpreter<'a> {
                 Ok(())
             }
 
+            Statement::While { condition, statement } => {
+                while self.eval(condition)? == Value::Boolean(true) {
+                    self.execute_statement(statement)?;
+                }
+
+                Ok(())
+            }
+
             Statement::Expression(expr) => {
                 self.eval(expr)?;
                 Ok(())
