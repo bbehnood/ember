@@ -22,6 +22,9 @@ pub enum Token<'a> {
     Greater,
     GreaterEqual,
 
+    AndAnd,
+    OrOr,
+
     Equal,
     Semicolon,
 
@@ -68,6 +71,8 @@ impl std::fmt::Display for Token<'_> {
             Token::LessEqual => write!(f, "'<='"),
             Token::Greater => write!(f, "'>'"),
             Token::GreaterEqual => write!(f, "'>='"),
+            Token::AndAnd => write!(f, "'&&'"),
+            Token::OrOr => write!(f, "'||'"),
             Token::Equal => write!(f, "'='"),
             Token::Semicolon => write!(f, "';'"),
             Token::LeftParen => write!(f, "'('"),
@@ -199,6 +204,16 @@ impl<'a> Lexer<'a> {
                     b'>' if self.peek() == Some(b'=') => {
                         self.advance();
                         Token::GreaterEqual
+                    }
+
+                    b'&' if self.peek() == Some(b'&') => {
+                        self.advance();
+                        Token::AndAnd
+                    }
+
+                    b'|' if self.peek() == Some(b'|') => {
+                        self.advance();
+                        Token::OrOr
                     }
 
                     b'<' => Token::Less,

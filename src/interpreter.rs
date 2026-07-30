@@ -157,6 +157,26 @@ impl<'a> Interpreter<'a> {
                         }
                         _ => unreachable!(),
                     },
+
+                    BinaryOp::And => Ok(
+                        if left == Value::Boolean(true)
+                            && right == Value::Boolean(true)
+                        {
+                            Value::Boolean(true)
+                        } else {
+                            Value::Boolean(false)
+                        },
+                    ),
+
+                    BinaryOp::Or => Ok(
+                        if left == Value::Boolean(true)
+                            || right == Value::Boolean(true)
+                        {
+                            Value::Boolean(true)
+                        } else {
+                            Value::Boolean(false)
+                        },
+                    ),
                 }
             }
         }

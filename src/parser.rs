@@ -132,7 +132,43 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> Result<Expr<'a>, ParseError> {
-        self.parse_comparison()
+        self.parse_or()
+    }
+
+    fn parse_or(&mut self) -> Result<Expr<'a>, ParseError> {
+        let mut expr = self.parse_and()?;
+
+        while self.peek() == Token::OrOr {
+            self.advance();
+
+            let rhs = self.parse_and()?;
+
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator: BinaryOp::Or,
+                right: Box::new(rhs),
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_and(&mut self) -> Result<Expr<'a>, ParseError> {
+        let mut expr = self.parse_comparison()?;
+
+        while self.peek() == Token::AndAnd {
+            self.advance();
+
+            let rhs = self.parse_comparison()?;
+
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator: BinaryOp::And,
+                right: Box::new(rhs),
+            };
+        }
+
+        Ok(expr)
     }
 
     fn parse_comparison(&mut self) -> Result<Expr<'a>, ParseError> {

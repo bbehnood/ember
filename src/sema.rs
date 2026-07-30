@@ -49,14 +49,34 @@ impl BinaryOp {
                 Ok(Type::Number)
             }
 
-            BinaryOp::Equal
-            | BinaryOp::NotEqual
-            | BinaryOp::Less
+            BinaryOp::Less
             | BinaryOp::LessEqual
             | BinaryOp::Greater
             | BinaryOp::GreaterEqual => {
+                if left != Type::Number || right != Type::Number {
+                    return Err(SemaError::UnexpectedType {
+                        expected: Type::Number,
+                        found: if left != Type::Number { left } else { right },
+                    });
+                }
+
+                Ok(Type::Boolean)
+            }
+
+            BinaryOp::Equal | BinaryOp::NotEqual => {
                 if left != right {
                     return Err(SemaError::MismatchedTypes { left, right });
+                }
+
+                Ok(Type::Boolean)
+            }
+
+            BinaryOp::And | BinaryOp::Or => {
+                if left != Type::Boolean || right != Type::Boolean {
+                    return Err(SemaError::UnexpectedType {
+                        expected: Type::Boolean,
+                        found: if left != Type::Number { left } else { right },
+                    });
                 }
 
                 Ok(Type::Boolean)

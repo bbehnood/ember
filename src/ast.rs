@@ -21,6 +21,9 @@ pub enum BinaryOp {
     LessEqual,
     Greater,
     GreaterEqual,
+
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
