@@ -73,6 +73,18 @@ impl<'a> Interpreter<'a> {
                 Ok(())
             }
 
+            Statement::If { condition, statement, else_clause } => {
+                if self.eval(condition)? == Value::Boolean(true) {
+                    self.execute_statement(statement)?;
+                } else {
+                    if let Some(stmt) = else_clause {
+                        self.execute_statement(stmt)?;
+                    }
+                }
+
+                Ok(())
+            }
+
             Statement::Expression(expr) => {
                 self.eval(expr)?;
                 Ok(())

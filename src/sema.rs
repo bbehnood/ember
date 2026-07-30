@@ -144,6 +144,19 @@ impl<'a> Sema<'a> {
                 Ok(())
             }
 
+            Statement::If { condition, .. } => {
+                let condition = self.check_expr(condition)?;
+
+                if condition != Type::Boolean {
+                    return Err(SemaError::UnexpectedType {
+                        expected: Type::Boolean,
+                        found: condition,
+                    });
+                }
+
+                Ok(())
+            }
+
             Statement::Expression(expr) => {
                 self.check_expr(expr)?;
 

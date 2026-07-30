@@ -77,6 +77,8 @@ impl<'a> Parser<'a> {
 
             Token::Print => self.parse_print(),
 
+            Token::If => self.parse_if(),
+
             _ => self.parse_expression_statement(),
         }
     }
@@ -119,6 +121,22 @@ impl<'a> Parser<'a> {
         self.expect(Token::RightBrace)?;
 
         Ok(Statement::Block(statements))
+    }
+
+    fn parse_if(&mut self) -> Result<Statement<'a>, ParseError> {
+        self.expect(Token::If)?;
+
+        let condition = self.parse_expression()?;
+
+        let statement = Box::new(self.parse_statement()?);
+        let mut else_clause = None;
+
+        if self.peek() == Token::Else {
+            self.advance();
+            else_clause = Some(Box::new(self.parse_statement()?));
+        }
+
+        Ok(Statement::If { condition, statement, else_clause })
     }
 
     fn parse_expression_statement(

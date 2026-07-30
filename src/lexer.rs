@@ -10,6 +10,9 @@ pub enum Token<'a> {
     Let,
     Print,
 
+    If,
+    Else,
+
     Plus,
     Minus,
     Star,
@@ -55,6 +58,8 @@ impl std::fmt::Display for Token<'_> {
         match self {
             Token::Let => write!(f, "'let'"),
             Token::Print => write!(f, "'print'"),
+            Token::If => write!(f, "'if'"),
+            Token::Else => write!(f, "'else'"),
             Token::Identifier(name) => {
                 write!(f, "identifier '{}'", String::from_utf8_lossy(name))
             }
@@ -136,6 +141,9 @@ impl<'a> Lexer<'a> {
         match ident {
             b"let" => Token::Let,
             b"print" => Token::Print,
+
+            b"if" => Token::If,
+            b"else" => Token::Else,
 
             b"true" => Token::True,
             b"false" => Token::False,
