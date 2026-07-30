@@ -127,6 +127,23 @@ impl<'a> Sema<'a> {
                 Ok(())
             }
 
+            Statement::Assign { name, value } => {
+                self.check_expr(value)?;
+
+                if !self
+                    .scopes
+                    .iter()
+                    .rev()
+                    .any(|scope| scope.contains_key(name))
+                {
+                    return Err(SemaError::UndefinedVariable(name_as_string(
+                        name,
+                    )));
+                }
+
+                Ok(())
+            }
+
             Statement::Print(expr) => {
                 self.check_expr(expr)?;
 

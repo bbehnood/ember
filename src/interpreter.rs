@@ -56,6 +56,19 @@ impl<'a> Interpreter<'a> {
                 Ok(())
             }
 
+            Statement::Assign { name, value } => {
+                let value = self.eval(value)?;
+                *self
+                    .scopes
+                    .iter_mut()
+                    .rev()
+                    .find_map(|scope| scope.get_mut(name))
+                    .expect("Undefined variables should be caught at sema") =
+                    value;
+
+                Ok(())
+            }
+
             Statement::Print(expr) => {
                 let value = self.eval(expr)?;
                 println!("{value}");

@@ -33,6 +33,11 @@ pub enum Statement<'a> {
         value: Expr<'a>,
     },
 
+    Assign {
+        name: &'a [u8],
+        value: Expr<'a>,
+    },
+
     Print(Expr<'a>),
 
     Block(Vec<Statement<'a>>),

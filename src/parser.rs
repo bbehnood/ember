@@ -42,6 +42,10 @@ impl<'a> Parser<'a> {
         self.tokens[self.current]
     }
 
+    fn peek_next(&self) -> Token<'a> {
+        self.tokens[self.current + 1]
+    }
+
     fn advance(&mut self) {
         self.current += 1;
     }
@@ -73,6 +77,10 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Token::Let => self.parse_let(),
 
+            Token::Identifier(_) if self.peek_next() == Token::Equal => {
+                self.parse_assignment()
+            }
+
             Token::LeftBrace => self.parse_block(),
 
             Token::Print => self.parse_print(),
@@ -97,6 +105,18 @@ impl<'a> Parser<'a> {
         self.expect(Token::Semicolon)?;
 
         Ok(Statement::Let { name, value })
+    }
+
+    fn parse_assignment(&mut self) -> Result<Statement<'a>, ParseError> {
+        let name = self.expect_identifier()?;
+
+        self.expect(Token::Equal)?;
+
+        let value = self.parse_expression()?;
+
+        self.expect(Token::Semicolon)?;
+
+        Ok(Statement::Assign { name, value })
     }
 
     fn parse_print(&mut self) -> Result<Statement<'a>, ParseError> {
