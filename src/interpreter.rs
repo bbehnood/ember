@@ -97,27 +97,66 @@ impl<'a> Interpreter<'a> {
                 let left = self.eval(left)?;
                 let right = self.eval(right)?;
 
-                match (left, right) {
-                    (Value::Number(left), Value::Number(right)) => {
-                        let result = match operator {
-                            BinaryOp::Add => left.checked_add(right),
-                            BinaryOp::Sub => left.checked_sub(right),
-                            BinaryOp::Mul => left.checked_mul(right),
-                            BinaryOp::Div => {
-                                if right == 0 {
-                                    return Err(RuntimeError::DivideByZero);
+                match operator {
+                    BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div => match (left, right) {
+                        (Value::Number(left), Value::Number(right)) => {
+                            let result = match operator {
+                                BinaryOp::Add => left.checked_add(right),
+                                BinaryOp::Sub => left.checked_sub(right),
+                                BinaryOp::Mul => left.checked_mul(right),
+                                BinaryOp::Div => {
+                                    if right == 0 {
+                                        return Err(RuntimeError::DivideByZero);
+                                    }
+
+                                    left.checked_div(right)
                                 }
 
-                                left.checked_div(right)
-                            }
-                        };
+                                _ => unreachable!(),
+                            };
 
-                        result
-                            .map(Value::Number)
-                            .ok_or(RuntimeError::ArithmeticOverflow)
-                    }
+                            result
+                                .map(Value::Number)
+                                .ok_or(RuntimeError::ArithmeticOverflow)
+                        }
 
-                    _ => unreachable!(),
+                        _ => unreachable!(),
+                    },
+
+                    BinaryOp::Equal => Ok(Value::Boolean(left == right)),
+
+                    BinaryOp::NotEqual => Ok(Value::Boolean(left != right)),
+
+                    BinaryOp::Less => match (left, right) {
+                        (Value::Number(left), Value::Number(right)) => {
+                            Ok(Value::Boolean(left < right))
+                        }
+                        _ => unreachable!(),
+                    },
+
+                    BinaryOp::LessEqual => match (left, right) {
+                        (Value::Number(left), Value::Number(right)) => {
+                            Ok(Value::Boolean(left <= right))
+                        }
+                        _ => unreachable!(),
+                    },
+
+                    BinaryOp::Greater => match (left, right) {
+                        (Value::Number(left), Value::Number(right)) => {
+                            Ok(Value::Boolean(left > right))
+                        }
+                        _ => unreachable!(),
+                    },
+
+                    BinaryOp::GreaterEqual => match (left, right) {
+                        (Value::Number(left), Value::Number(right)) => {
+                            Ok(Value::Boolean(left >= right))
+                        }
+                        _ => unreachable!(),
+                    },
                 }
             }
         }

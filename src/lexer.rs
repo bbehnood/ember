@@ -15,6 +15,13 @@ pub enum Token<'a> {
     Star,
     Slash,
 
+    EqualEqual,
+    BangEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+
     Equal,
     Semicolon,
 
@@ -55,6 +62,12 @@ impl std::fmt::Display for Token<'_> {
             Token::Minus => write!(f, "'-'"),
             Token::Star => write!(f, "'*'"),
             Token::Slash => write!(f, "'/'"),
+            Token::EqualEqual => write!(f, "'=='"),
+            Token::BangEqual => write!(f, "'!='"),
+            Token::Less => write!(f, "'<'"),
+            Token::LessEqual => write!(f, "'<='"),
+            Token::Greater => write!(f, "'>'"),
+            Token::GreaterEqual => write!(f, "'>='"),
             Token::Equal => write!(f, "'='"),
             Token::Semicolon => write!(f, "';'"),
             Token::LeftParen => write!(f, "'('"),
@@ -167,6 +180,30 @@ impl<'a> Lexer<'a> {
                     b'*' => Token::Star,
 
                     b'/' => Token::Slash,
+
+                    b'=' if self.peek() == Some(b'=') => {
+                        self.advance();
+                        Token::EqualEqual
+                    }
+
+                    b'!' if self.peek() == Some(b'=') => {
+                        self.advance();
+                        Token::BangEqual
+                    }
+
+                    b'<' if self.peek() == Some(b'=') => {
+                        self.advance();
+                        Token::LessEqual
+                    }
+
+                    b'>' if self.peek() == Some(b'=') => {
+                        self.advance();
+                        Token::GreaterEqual
+                    }
+
+                    b'<' => Token::Less,
+
+                    b'>' => Token::Greater,
 
                     b'=' => Token::Equal,
 
@@ -325,5 +362,21 @@ mod tests {
                 Token::Eof
             ]
         )
+    }
+
+    #[test]
+    fn comparison_operators() {
+        let mut lexer = Lexer::new(b"== != <= >=");
+
+        assert_eq!(
+            lexer.tokenize().unwrap(),
+            vec![
+                Token::EqualEqual,
+                Token::BangEqual,
+                Token::LessEqual,
+                Token::GreaterEqual,
+                Token::Eof,
+            ]
+        );
     }
 }

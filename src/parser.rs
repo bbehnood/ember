@@ -12,7 +12,7 @@ pub struct Parser<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ParseError {
-    #[error("expected '{expected}', found {found}")]
+    #[error("expected {expected}, found {found}")]
     UnexpectedToken { expected: String, found: String },
 
     #[error("expected an identifier")]
@@ -132,7 +132,35 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> Result<Expr<'a>, ParseError> {
-        self.parse_addition()
+        self.parse_comparison()
+    }
+
+    fn parse_comparison(&mut self) -> Result<Expr<'a>, ParseError> {
+        let mut expr = self.parse_addition()?;
+
+        loop {
+            let op = match self.peek() {
+                Token::Less => BinaryOp::Less,
+                Token::LessEqual => BinaryOp::LessEqual,
+                Token::Greater => BinaryOp::Greater,
+                Token::GreaterEqual => BinaryOp::GreaterEqual,
+                Token::EqualEqual => BinaryOp::Equal,
+                Token::BangEqual => BinaryOp::NotEqual,
+                _ => break,
+            };
+
+            self.advance();
+
+            let rhs = self.parse_addition()?;
+
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator: op,
+                right: Box::new(rhs),
+            };
+        }
+
+        Ok(expr)
     }
 
     fn parse_addition(&mut self) -> Result<Expr<'a>, ParseError> {

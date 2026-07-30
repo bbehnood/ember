@@ -35,21 +35,31 @@ fn name_as_string(name: &[u8]) -> String {
         .to_owned()
 }
 
-struct Signature {
-    lhs: Type,
-    rhs: Type,
-    result: Type,
-}
-
 impl BinaryOp {
-    fn signature(self) -> Signature {
+    fn check(self, left: Type, right: Type) -> Result<Type, SemaError> {
         match self {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-                Signature {
-                    lhs: Type::Number,
-                    rhs: Type::Number,
-                    result: Type::Number,
+                if left != Type::Number || right != Type::Number {
+                    return Err(SemaError::UnexpectedType {
+                        expected: Type::Number,
+                        found: right,
+                    });
                 }
+
+                Ok(Type::Number)
+            }
+
+            BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual => {
+                if left != right {
+                    return Err(SemaError::MismatchedTypes { left, right });
+                }
+
+                Ok(Type::Boolean)
             }
         }
     }
@@ -140,20 +150,9 @@ impl<'a> Sema<'a> {
             Expr::Binary { left, right, operator } => {
                 let left = self.check_expr(left)?;
                 let right = self.check_expr(right)?;
-                let sig = operator.signature();
+                let result = operator.check(left, right)?;
 
-                if left != sig.lhs || right != sig.rhs {
-                    return Err(SemaError::UnexpectedType {
-                        expected: sig.lhs,
-                        found: left,
-                    });
-                }
-
-                if left != right {
-                    return Err(SemaError::MismatchedTypes { left, right });
-                }
-
-                Ok(sig.result)
+                Ok(result)
             }
         }
     }

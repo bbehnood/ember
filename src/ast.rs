@@ -14,6 +14,13 @@ pub enum BinaryOp {
     Sub,
     Mul,
     Div,
+
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
