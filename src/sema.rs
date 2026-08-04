@@ -377,4 +377,207 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn comparison_of_numbers() {
+        let program = Program {
+            statements: vec![Statement::Expression(Expr::Binary {
+                left: Box::new(Expr::Number(1)),
+                operator: BinaryOp::Less,
+                right: Box::new(Expr::Number(2)),
+            })],
+        };
+
+        assert_eq!(check(program), Ok(()));
+    }
+
+    #[test]
+    fn comparison_type_mismatch() {
+        let program = Program {
+            statements: vec![Statement::Expression(Expr::Binary {
+                left: Box::new(Expr::Boolean(true)),
+                operator: BinaryOp::Less,
+                right: Box::new(Expr::Number(2)),
+            })],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UnexpectedType {
+                expected: Type::Number,
+                found: Type::Boolean,
+            })
+        );
+    }
+
+    #[test]
+    fn equality_of_booleans() {
+        let program = Program {
+            statements: vec![Statement::Expression(Expr::Binary {
+                left: Box::new(Expr::Boolean(true)),
+                operator: BinaryOp::Equal,
+                right: Box::new(Expr::Boolean(false)),
+            })],
+        };
+
+        assert_eq!(check(program), Ok(()));
+    }
+
+    #[test]
+    fn equality_type_mismatch() {
+        let program = Program {
+            statements: vec![Statement::Expression(Expr::Binary {
+                left: Box::new(Expr::Number(1)),
+                operator: BinaryOp::Equal,
+                right: Box::new(Expr::Boolean(true)),
+            })],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::MismatchedTypes {
+                left: Type::Number,
+                right: Type::Boolean,
+            })
+        );
+    }
+
+    #[test]
+    fn logical_and_of_booleans() {
+        let program = Program {
+            statements: vec![Statement::Expression(Expr::Binary {
+                left: Box::new(Expr::Boolean(true)),
+                operator: BinaryOp::And,
+                right: Box::new(Expr::Boolean(false)),
+            })],
+        };
+
+        assert_eq!(check(program), Ok(()));
+    }
+
+    #[test]
+    fn logical_operator_type_mismatch() {
+        let program = Program {
+            statements: vec![Statement::Expression(Expr::Binary {
+                left: Box::new(Expr::Number(1)),
+                operator: BinaryOp::And,
+                right: Box::new(Expr::Number(2)),
+            })],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UnexpectedType {
+                expected: Type::Boolean,
+                found: Type::Number,
+            })
+        );
+    }
+
+    #[test]
+    fn if_with_boolean_condition() {
+        let program = Program {
+            statements: vec![Statement::If {
+                condition: Expr::Boolean(true),
+                statement: Box::new(Statement::Block(vec![])),
+                else_clause: None,
+            }],
+        };
+
+        assert_eq!(check(program), Ok(()));
+    }
+
+    #[test]
+    fn if_with_non_boolean_condition() {
+        let program = Program {
+            statements: vec![Statement::If {
+                condition: Expr::Number(1),
+                statement: Box::new(Statement::Block(vec![])),
+                else_clause: None,
+            }],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UnexpectedType {
+                expected: Type::Boolean,
+                found: Type::Number,
+            })
+        );
+    }
+
+    #[test]
+    fn while_with_boolean_condition() {
+        let program = Program {
+            statements: vec![Statement::While {
+                condition: Expr::Boolean(true),
+                statement: Box::new(Statement::Block(vec![])),
+            }],
+        };
+
+        assert_eq!(check(program), Ok(()));
+    }
+
+    #[test]
+    fn while_with_non_boolean_condition() {
+        let program = Program {
+            statements: vec![Statement::While {
+                condition: Expr::Number(1),
+                statement: Box::new(Statement::Block(vec![])),
+            }],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UnexpectedType {
+                expected: Type::Boolean,
+                found: Type::Number,
+            })
+        );
+    }
+
+    #[test]
+    fn assign_to_defined_variable() {
+        let program = Program {
+            statements: vec![
+                Statement::Let { name: b"x", value: Expr::Number(1) },
+                Statement::Assign { name: b"x", value: Expr::Number(2) },
+            ],
+        };
+
+        assert_eq!(check(program), Ok(()));
+    }
+
+    #[test]
+    fn assign_to_undefined_variable() {
+        let program = Program {
+            statements: vec![Statement::Assign {
+                name: b"x",
+                value: Expr::Number(1),
+            }],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UndefinedVariable("x".to_string()))
+        );
+    }
+
+    #[test]
+    fn variable_out_of_scope_after_block() {
+        let program = Program {
+            statements: vec![
+                Statement::Block(vec![Statement::Let {
+                    name: b"x",
+                    value: Expr::Number(1),
+                }]),
+                Statement::Expression(Expr::Identifier(b"x")),
+            ],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UndefinedVariable("x".to_string()))
+        );
+    }
 }

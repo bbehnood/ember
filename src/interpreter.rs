@@ -497,4 +497,243 @@ mod tests {
 
         assert_eq!(run(program), Ok(()));
     }
+
+    #[test]
+    fn equal() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(2)),
+            operator: BinaryOp::Equal,
+            right: Box::new(Expr::Number(2)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn not_equal() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(2)),
+            operator: BinaryOp::NotEqual,
+            right: Box::new(Expr::Number(3)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn less() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(1)),
+            operator: BinaryOp::Less,
+            right: Box::new(Expr::Number(2)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn less_equal() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(2)),
+            operator: BinaryOp::LessEqual,
+            right: Box::new(Expr::Number(2)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn greater() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(3)),
+            operator: BinaryOp::Greater,
+            right: Box::new(Expr::Number(2)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn greater_equal() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Number(2)),
+            operator: BinaryOp::GreaterEqual,
+            right: Box::new(Expr::Number(2)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn logical_and() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Boolean(true)),
+            operator: BinaryOp::And,
+            right: Box::new(Expr::Boolean(false)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Boolean(false)));
+    }
+
+    #[test]
+    fn logical_or() {
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Boolean(false)),
+            operator: BinaryOp::Or,
+            right: Box::new(Expr::Boolean(true)),
+        };
+
+        assert_eq!(eval(expr), Ok(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn if_true_branch() {
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .run(&Program {
+                statements: vec![Statement::If {
+                    condition: Expr::Boolean(true),
+                    statement: Box::new(Statement::Let {
+                        name: b"x",
+                        value: Expr::Number(1),
+                    }),
+                    else_clause: Some(Box::new(Statement::Let {
+                        name: b"x",
+                        value: Expr::Number(2),
+                    })),
+                }],
+            })
+            .unwrap();
+
+        assert_eq!(
+            interpreter.eval(&Expr::Identifier(b"x")),
+            Ok(Value::Number(1))
+        );
+    }
+
+    #[test]
+    fn if_false_branch_with_else() {
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .run(&Program {
+                statements: vec![Statement::If {
+                    condition: Expr::Boolean(false),
+                    statement: Box::new(Statement::Let {
+                        name: b"x",
+                        value: Expr::Number(1),
+                    }),
+                    else_clause: Some(Box::new(Statement::Let {
+                        name: b"x",
+                        value: Expr::Number(2),
+                    })),
+                }],
+            })
+            .unwrap();
+
+        assert_eq!(
+            interpreter.eval(&Expr::Identifier(b"x")),
+            Ok(Value::Number(2))
+        );
+    }
+
+    #[test]
+    fn if_false_branch_without_else() {
+        let program = Program {
+            statements: vec![Statement::If {
+                condition: Expr::Boolean(false),
+                statement: Box::new(Statement::Expression(Expr::Number(1))),
+                else_clause: None,
+            }],
+        };
+
+        assert_eq!(run(program), Ok(()));
+    }
+
+    #[test]
+    fn while_loop() {
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .run(&Program {
+                statements: vec![
+                    Statement::Let { name: b"x", value: Expr::Number(0) },
+                    Statement::While {
+                        condition: Expr::Binary {
+                            left: Box::new(Expr::Identifier(b"x")),
+                            operator: BinaryOp::Less,
+                            right: Box::new(Expr::Number(3)),
+                        },
+                        statement: Box::new(Statement::Assign {
+                            name: b"x",
+                            value: Expr::Binary {
+                                left: Box::new(Expr::Identifier(b"x")),
+                                operator: BinaryOp::Add,
+                                right: Box::new(Expr::Number(1)),
+                            },
+                        }),
+                    },
+                ],
+            })
+            .unwrap();
+
+        assert_eq!(
+            interpreter.eval(&Expr::Identifier(b"x")),
+            Ok(Value::Number(3))
+        );
+    }
+
+    #[test]
+    fn while_loop_never_runs() {
+        let program = Program {
+            statements: vec![Statement::While {
+                condition: Expr::Boolean(false),
+                statement: Box::new(Statement::Expression(Expr::Number(1))),
+            }],
+        };
+
+        assert_eq!(run(program), Ok(()));
+    }
+
+    #[test]
+    fn assignment() {
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .run(&Program {
+                statements: vec![
+                    Statement::Let { name: b"x", value: Expr::Number(1) },
+                    Statement::Assign { name: b"x", value: Expr::Number(2) },
+                ],
+            })
+            .unwrap();
+
+        assert_eq!(
+            interpreter.eval(&Expr::Identifier(b"x")),
+            Ok(Value::Number(2))
+        );
+    }
+
+    #[test]
+    fn assignment_in_nested_block() {
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .run(&Program {
+                statements: vec![
+                    Statement::Let { name: b"x", value: Expr::Number(1) },
+                    Statement::Block(vec![Statement::Assign {
+                        name: b"x",
+                        value: Expr::Number(2),
+                    }]),
+                ],
+            })
+            .unwrap();
+
+        assert_eq!(
+            interpreter.eval(&Expr::Identifier(b"x")),
+            Ok(Value::Number(2))
+        );
+    }
 }

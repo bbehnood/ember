@@ -497,4 +497,278 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn boolean_literal() {
+        let tokens = [Token::True, Token::Semicolon, Token::Eof];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::Expression(Expr::Boolean(true))]
+            }
+        );
+    }
+
+    #[test]
+    fn comparison() {
+        let tokens = [
+            Token::Number(1),
+            Token::Less,
+            Token::Number(2),
+            Token::Semicolon,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::Expression(Expr::Binary {
+                    left: Box::new(Expr::Number(1)),
+                    operator: BinaryOp::Less,
+                    right: Box::new(Expr::Number(2)),
+                })]
+            }
+        );
+    }
+
+    #[test]
+    fn logical_and() {
+        let tokens = [
+            Token::True,
+            Token::AndAnd,
+            Token::False,
+            Token::Semicolon,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::Expression(Expr::Binary {
+                    left: Box::new(Expr::Boolean(true)),
+                    operator: BinaryOp::And,
+                    right: Box::new(Expr::Boolean(false)),
+                })]
+            }
+        );
+    }
+
+    #[test]
+    fn logical_or() {
+        let tokens = [
+            Token::True,
+            Token::OrOr,
+            Token::False,
+            Token::Semicolon,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::Expression(Expr::Binary {
+                    left: Box::new(Expr::Boolean(true)),
+                    operator: BinaryOp::Or,
+                    right: Box::new(Expr::Boolean(false)),
+                })]
+            }
+        );
+    }
+
+    #[test]
+    fn logical_precedence_over_comparison() {
+        let tokens = [
+            Token::Number(1),
+            Token::Less,
+            Token::Number(2),
+            Token::AndAnd,
+            Token::Number(3),
+            Token::Less,
+            Token::Number(4),
+            Token::Semicolon,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::Expression(Expr::Binary {
+                    left: Box::new(Expr::Binary {
+                        left: Box::new(Expr::Number(1)),
+                        operator: BinaryOp::Less,
+                        right: Box::new(Expr::Number(2)),
+                    }),
+                    operator: BinaryOp::And,
+                    right: Box::new(Expr::Binary {
+                        left: Box::new(Expr::Number(3)),
+                        operator: BinaryOp::Less,
+                        right: Box::new(Expr::Number(4)),
+                    }),
+                })]
+            }
+        );
+    }
+
+    #[test]
+    fn assignment() {
+        let tokens = [
+            Token::Identifier(b"x"),
+            Token::Equal,
+            Token::Number(1),
+            Token::Semicolon,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::Assign {
+                    name: b"x",
+                    value: Expr::Number(1),
+                }]
+            }
+        );
+    }
+
+    #[test]
+    fn print_statement() {
+        let tokens = [
+            Token::Print,
+            Token::LeftParen,
+            Token::Number(1),
+            Token::RightParen,
+            Token::Semicolon,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::Print(Expr::Number(1))]
+            }
+        );
+    }
+
+    #[test]
+    fn block_statement() {
+        let tokens = [
+            Token::LeftBrace,
+            Token::Number(1),
+            Token::Semicolon,
+            Token::RightBrace,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::Block(vec![
+                    Statement::Expression(Expr::Number(1))
+                ])]
+            }
+        );
+    }
+
+    #[test]
+    fn empty_block_statement() {
+        let tokens = [Token::LeftBrace, Token::RightBrace, Token::Eof];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program { statements: vec![Statement::Block(vec![])] }
+        );
+    }
+
+    #[test]
+    fn if_statement() {
+        let tokens = [
+            Token::If,
+            Token::True,
+            Token::LeftBrace,
+            Token::RightBrace,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::If {
+                    condition: Expr::Boolean(true),
+                    statement: Box::new(Statement::Block(vec![])),
+                    else_clause: None,
+                }]
+            }
+        );
+    }
+
+    #[test]
+    fn if_else_statement() {
+        let tokens = [
+            Token::If,
+            Token::True,
+            Token::LeftBrace,
+            Token::RightBrace,
+            Token::Else,
+            Token::LeftBrace,
+            Token::RightBrace,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::If {
+                    condition: Expr::Boolean(true),
+                    statement: Box::new(Statement::Block(vec![])),
+                    else_clause: Some(Box::new(Statement::Block(vec![]))),
+                }]
+            }
+        );
+    }
+
+    #[test]
+    fn while_statement() {
+        let tokens = [
+            Token::While,
+            Token::True,
+            Token::LeftBrace,
+            Token::RightBrace,
+            Token::Eof,
+        ];
+
+        let program = parse(&tokens).unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::While {
+                    condition: Expr::Boolean(true),
+                    statement: Box::new(Statement::Block(vec![])),
+                }]
+            }
+        );
+    }
 }

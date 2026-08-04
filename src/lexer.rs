@@ -405,4 +405,68 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn relational_operators() {
+        let mut lexer = Lexer::new(b"< >");
+
+        assert_eq!(
+            lexer.tokenize().unwrap(),
+            vec![Token::Less, Token::Greater, Token::Eof]
+        );
+    }
+
+    #[test]
+    fn logical_operators() {
+        let mut lexer = Lexer::new(b"&& ||");
+
+        assert_eq!(
+            lexer.tokenize().unwrap(),
+            vec![Token::AndAnd, Token::OrOr, Token::Eof]
+        );
+    }
+
+    #[test]
+    fn braces() {
+        let mut lexer = Lexer::new(b"{}");
+
+        assert_eq!(
+            lexer.tokenize().unwrap(),
+            vec![Token::LeftBrace, Token::RightBrace, Token::Eof]
+        );
+    }
+
+    #[test]
+    fn boolean_literals() {
+        let mut lexer = Lexer::new(b"true false");
+
+        assert_eq!(
+            lexer.tokenize().unwrap(),
+            vec![Token::True, Token::False, Token::Eof]
+        );
+    }
+
+    #[test]
+    fn keyword_print() {
+        let mut lexer = Lexer::new(b"print");
+
+        assert_eq!(lexer.tokenize().unwrap(), vec![Token::Print, Token::Eof])
+    }
+
+    #[test]
+    fn keyword_if_else() {
+        let mut lexer = Lexer::new(b"if else");
+
+        assert_eq!(
+            lexer.tokenize().unwrap(),
+            vec![Token::If, Token::Else, Token::Eof]
+        )
+    }
+
+    #[test]
+    fn keyword_while() {
+        let mut lexer = Lexer::new(b"while");
+
+        assert_eq!(lexer.tokenize().unwrap(), vec![Token::While, Token::Eof])
+    }
 }
