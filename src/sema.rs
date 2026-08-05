@@ -73,7 +73,7 @@ impl BinaryOp {
                 if left != Type::Number || right != Type::Number {
                     return Err(SemaError::UnexpectedType {
                         expected: Type::Number,
-                        found: right,
+                        found: if left != Type::Number { left } else { right },
                     });
                 }
 
@@ -198,16 +198,7 @@ impl<'a> Sema<'a> {
                 Ok(())
             }
 
-            // NOTE: only the `condition` is type-checked here - the
-            // `statement`/`else_clause` bodies (`..`) are never recursed
-            // into. In practice this means type errors inside an `if`/
-            // `while` body (e.g. `if true { 1 + true; }`) are not caught
-            // by Sema and will only surface as a panic/`unreachable!()` at
-            // runtime in `Interpreter::eval`. This looks like a real gap
-            // rather than intentional behavior; flagging it here rather
-            // than silently "fixing" it, since that's a semantic change
-            // beyond documentation.
-            Statement::If { condition, .. } => {
+            Statement::If { condition, statement, else_clause } => {
                 let condition = self.check_expr(condition)?;
 
                 if condition != Type::Boolean {
@@ -215,14 +206,18 @@ impl<'a> Sema<'a> {
                         expected: Type::Boolean,
                         found: condition,
                     });
+                }
+
+                self.check_statement(statement)?;
+
+                if let Some(else_clause) = else_clause {
+                    self.check_statement(else_clause)?;
                 }
 
                 Ok(())
             }
 
-            // NOTE: same gap as `Statement::If` above - the loop body isn't
-            // type-checked, only the condition.
-            Statement::While { condition, .. } => {
+            Statement::While { condition, statement } => {
                 let condition = self.check_expr(condition)?;
 
                 if condition != Type::Boolean {
@@ -231,6 +226,8 @@ impl<'a> Sema<'a> {
                         found: condition,
                     });
                 }
+
+                self.check_statement(statement)?;
 
                 Ok(())
             }
@@ -651,5 +648,84 @@ mod tests {
             check(program),
             Err(SemaError::UndefinedVariable("x".to_string()))
         );
+    }
+
+    #[test]
+    fn error_inside_if_body() {
+        let program = Program {
+            statements: vec![Statement::If {
+                condition: Expr::Boolean(true),
+
+                statement: Box::new(Statement::Expression(Expr::Binary {
+                    left: Box::new(Expr::Boolean(true)),
+                    operator: BinaryOp::Add,
+                    right: Box::new(Expr::Number(10)),
+                })),
+
+                else_clause: None,
+            }],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UnexpectedType {
+                expected: Type::Number,
+                found: Type::Boolean
+            })
+        )
+    }
+
+    #[test]
+    fn error_inside_else_body() {
+        let program = Program {
+            statements: vec![Statement::If {
+                condition: Expr::Boolean(true),
+
+                statement: Box::new(Statement::Expression(Expr::Binary {
+                    left: Box::new(Expr::Number(20)),
+                    operator: BinaryOp::Add,
+                    right: Box::new(Expr::Number(10)),
+                })),
+
+                else_clause: Some(Box::new(Statement::Expression(
+                    Expr::Binary {
+                        left: Box::new(Expr::Boolean(true)),
+                        operator: BinaryOp::Add,
+                        right: Box::new(Expr::Boolean(false)),
+                    },
+                ))),
+            }],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UnexpectedType {
+                expected: Type::Number,
+                found: Type::Boolean
+            })
+        )
+    }
+
+    #[test]
+    fn error_inside_while_body() {
+        let program = Program {
+            statements: vec![Statement::While {
+                condition: Expr::Boolean(true),
+
+                statement: Box::new(Statement::Expression(Expr::Binary {
+                    left: Box::new(Expr::Boolean(true)),
+                    operator: BinaryOp::Add,
+                    right: Box::new(Expr::Number(10)),
+                })),
+            }],
+        };
+
+        assert_eq!(
+            check(program),
+            Err(SemaError::UnexpectedType {
+                expected: Type::Number,
+                found: Type::Boolean
+            })
+        )
     }
 }
