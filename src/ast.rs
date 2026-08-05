@@ -24,8 +24,8 @@ pub enum Expr<'a> {
 ///
 /// Grouped by category: arithmetic (`Add`..`Div`), comparison
 /// (`Equal`..`GreaterEqual`), and logical (`And`, `Or`). See
-/// [`crate::sema::BinaryOp::check`] for the type rules each operator
-/// enforces, and [`crate::interpreter::Interpreter::eval`] for how each is
+/// `BinaryOp::check` (in `sema`) for the type rules each operator
+/// enforces, and `Interpreter::eval` (in `interpreter`) for how each is
 /// evaluated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {

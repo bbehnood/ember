@@ -62,7 +62,7 @@ pub enum Token<'a> {
 /// Scans a byte slice of Ember source and produces a stream of [`Token`]s.
 ///
 /// The lexer is a simple single-pass scanner with one character of
-/// lookahead (see [`Lexer::peek`]), which is enough to disambiguate
+/// lookahead (see `Lexer::peek`), which is enough to disambiguate
 /// multi-character operators like `==` from `=`.
 pub struct Lexer<'a> {
     /// The full source buffer being scanned.

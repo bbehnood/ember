@@ -1,5 +1,5 @@
-//! Turns a flat token stream from [`crate::lexer`] into an [`ast::Program`]
-//! (aliased here via `crate::ast`).
+//! Turns a flat token stream from [`crate::lexer`] into a
+//! [`crate::ast::Program`].
 //!
 //! This is a straightforward recursive-descent parser. Expressions are
 //! parsed using precedence climbing: each precedence level has its own
@@ -15,7 +15,7 @@ use crate::{
     lexer::Token,
 };
 
-/// Consumes a slice of [`Token`]s and produces an [`ast::Program`].
+/// Consumes a slice of [`Token`]s and produces a [`crate::ast::Program`].
 ///
 /// Unlike the lexer, the parser doesn't own its input - it borrows the
 /// token slice produced by [`crate::lexer::Lexer::tokenize`] and walks it
