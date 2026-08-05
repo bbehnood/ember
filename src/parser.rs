@@ -1,3 +1,13 @@
+//! Turns a flat token stream from [`crate::lexer`] into an [`ast::Program`]
+//! (aliased here via `crate::ast`).
+//!
+//! This is a straightforward recursive-descent parser. Expressions are
+//! parsed using precedence climbing: each precedence level has its own
+//! `parse_*` method, and each one calls into the next-tighter-binding level
+//! for its operands. From loosest to tightest binding, the chain is:
+//! `parse_expression` -> `parse_or` -> `parse_and` -> `parse_comparison` ->
+//! `parse_addition` -> `parse_multiplication` -> `parse_primary`.
+
 use thiserror::Error;
 
 use crate::{
@@ -5,19 +15,32 @@ use crate::{
     lexer::Token,
 };
 
+/// Consumes a slice of [`Token`]s and produces an [`ast::Program`].
+///
+/// Unlike the lexer, the parser doesn't own its input - it borrows the
+/// token slice produced by [`crate::lexer::Lexer::tokenize`] and walks it
+/// with a single cursor (`current`), using one token of lookahead
+/// (`peek_next`) where needed to disambiguate grammar rules.
 pub struct Parser<'a> {
     tokens: &'a [Token<'a>],
     current: usize,
 }
 
+/// Errors that can occur while parsing.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ParseError {
+    /// A specific token was expected at the current position but a
+    /// different one was found, e.g. a missing `)` or `;`.
     #[error("expected {expected}, found {found}")]
     UnexpectedToken { expected: String, found: String },
 
+    /// An identifier was expected (e.g. after `let`) but something else was
+    /// found.
     #[error("expected an identifier")]
     ExpectedIdentifier,
 
+    /// The start of an expression was expected but the current token can't
+    /// begin one (e.g. a stray operator or closing brace).
     #[error("expected an expression")]
     ExpectedExpression,
 }
@@ -28,6 +51,8 @@ impl<'a> Parser<'a> {
         Self { tokens, current: 0 }
     }
 
+    /// Parses the entire token stream into a [`Program`], i.e. a sequence
+    /// of top-level statements running up to [`Token::Eof`].
     pub fn parse(&mut self) -> Result<Program<'a>, ParseError> {
         let mut statements = Vec::new();
 
@@ -38,18 +63,28 @@ impl<'a> Parser<'a> {
         Ok(Program { statements })
     }
 
+    /// Returns the token at the current cursor position without consuming
+    /// it. Never fails: [`Token::Eof`] is always present as a sentinel at
+    /// the end of the stream, so this is always in bounds.
     fn peek(&self) -> Token<'a> {
         self.tokens[self.current]
     }
 
+    /// Returns the token one past the current cursor position, used to
+    /// look ahead when a single token isn't enough to decide which grammar
+    /// rule applies (see the identifier-vs-assignment check in
+    /// [`Self::parse_statement`]).
     fn peek_next(&self) -> Token<'a> {
         self.tokens[self.current + 1]
     }
 
+    /// Moves the cursor forward by one token.
     fn advance(&mut self) {
         self.current += 1;
     }
 
+    /// Consumes the current token if it matches `expected`, otherwise
+    /// returns a [`ParseError::UnexpectedToken`] describing the mismatch.
     fn expect(&mut self, expected: Token<'a>) -> Result<(), ParseError> {
         if self.peek() == expected {
             self.advance();
@@ -62,6 +97,9 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Consumes the current token if it's an [`Token::Identifier`] and
+    /// returns the borrowed name, otherwise returns
+    /// [`ParseError::ExpectedIdentifier`].
     fn expect_identifier(&mut self) -> Result<&'a [u8], ParseError> {
         match self.peek() {
             Token::Identifier(name) => {
@@ -73,6 +111,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Dispatches to the appropriate `parse_*` method for a statement based
+    /// on the current token.
+    ///
+    /// Distinguishing an assignment (`x = 1;`) from a bare expression
+    /// statement (`x;`) requires one token of lookahead: both start with an
+    /// identifier, so [`Self::peek_next`] is used to check for the
+    /// following `=`.
     fn parse_statement(&mut self) -> Result<Statement<'a>, ParseError> {
         match self.peek() {
             Token::Let => self.parse_let(),
@@ -93,6 +138,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses a `let name = expr;` declaration.
     fn parse_let(&mut self) -> Result<Statement<'a>, ParseError> {
         self.expect(Token::Let)?;
 
@@ -107,6 +153,9 @@ impl<'a> Parser<'a> {
         Ok(Statement::Let { name, value })
     }
 
+    /// Parses a `name = expr;` assignment. Called only after
+    /// [`Self::parse_statement`] has already confirmed via lookahead that
+    /// the statement starts with `identifier =`.
     fn parse_assignment(&mut self) -> Result<Statement<'a>, ParseError> {
         let name = self.expect_identifier()?;
 
@@ -119,6 +168,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::Assign { name, value })
     }
 
+    /// Parses a `print(expr);` statement.
     fn parse_print(&mut self) -> Result<Statement<'a>, ParseError> {
         self.expect(Token::Print)?;
         self.expect(Token::LeftParen)?;
@@ -131,6 +181,9 @@ impl<'a> Parser<'a> {
         Ok(Statement::Print(expr))
     }
 
+    /// Parses a `{ ... }` block: a brace-delimited sequence of statements.
+    /// Stops at a matching `}` or, defensively, at EOF (in which case
+    /// [`Self::expect`] below will produce the appropriate error).
     fn parse_block(&mut self) -> Result<Statement<'a>, ParseError> {
         self.expect(Token::LeftBrace)?;
 
@@ -145,6 +198,11 @@ impl<'a> Parser<'a> {
         Ok(Statement::Block(statements))
     }
 
+    /// Parses an `if condition statement [else statement]` construct.
+    ///
+    /// Note that `statement` here is a full statement, not necessarily a
+    /// block - so both branches are typically (but not required to be)
+    /// `{ ... }` blocks, matching how the grammar is structured.
     fn parse_if(&mut self) -> Result<Statement<'a>, ParseError> {
         self.expect(Token::If)?;
 
@@ -161,6 +219,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::If { condition, statement, else_clause })
     }
 
+    /// Parses a `while condition statement` loop.
     fn parse_while(&mut self) -> Result<Statement<'a>, ParseError> {
         self.expect(Token::While)?;
 
@@ -170,6 +229,9 @@ impl<'a> Parser<'a> {
         Ok(Statement::While { condition, statement })
     }
 
+    /// Parses a bare expression followed by a semicolon, e.g. `1 + 2;`.
+    /// This is the fallback case in [`Self::parse_statement`] when no other
+    /// statement keyword matches.
     fn parse_expression_statement(
         &mut self,
     ) -> Result<Statement<'a>, ParseError> {
@@ -180,10 +242,15 @@ impl<'a> Parser<'a> {
         Ok(Statement::Expression(expr))
     }
 
+    /// Entry point for expression parsing. Starts at the loosest-binding
+    /// level (`||`) and recurses down through tighter-binding levels; see
+    /// the module-level docs for the full precedence chain.
     fn parse_expression(&mut self) -> Result<Expr<'a>, ParseError> {
         self.parse_or()
     }
 
+    /// Parses `||` expressions (loosest-binding, left-associative). Operands
+    /// are parsed one level tighter, at [`Self::parse_and`].
     fn parse_or(&mut self) -> Result<Expr<'a>, ParseError> {
         let mut expr = self.parse_and()?;
 
@@ -202,6 +269,8 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// Parses `&&` expressions, binding tighter than `||` but looser than
+    /// comparisons.
     fn parse_and(&mut self) -> Result<Expr<'a>, ParseError> {
         let mut expr = self.parse_comparison()?;
 
@@ -220,6 +289,11 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// Parses comparison expressions (`<`, `<=`, `>`, `>=`, `==`, `!=`).
+    /// All comparison operators sit at the same precedence level and are
+    /// left-associative (so `a < b < c` parses as `(a < b) < c`, though
+    /// that particular expression would later be rejected by
+    /// [`crate::sema::Sema`] since `<` produces a boolean, not a number).
     fn parse_comparison(&mut self) -> Result<Expr<'a>, ParseError> {
         let mut expr = self.parse_addition()?;
 
@@ -248,6 +322,8 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// Parses `+` and `-` expressions, binding tighter than comparisons but
+    /// looser than `*`/`/`.
     fn parse_addition(&mut self) -> Result<Expr<'a>, ParseError> {
         let mut expr = self.parse_multiplication()?;
 
@@ -272,6 +348,8 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// Parses `*` and `/` expressions, the tightest-binding operators
+    /// besides parenthesized/primary expressions.
     fn parse_multiplication(&mut self) -> Result<Expr<'a>, ParseError> {
         let mut expr = self.parse_primary()?;
 
@@ -296,6 +374,9 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// Parses a primary expression: a literal, identifier, or a
+    /// parenthesized sub-expression. This is the base case of the
+    /// precedence-climbing chain.
     fn parse_primary(&mut self) -> Result<Expr<'a>, ParseError> {
         match self.peek() {
             Token::Number(n) => {
@@ -324,6 +405,8 @@ impl<'a> Parser<'a> {
             Token::LeftParen => {
                 self.advance();
 
+                // Parenthesized expressions re-enter at the top of the
+                // precedence chain, since anything can appear inside `(...)`.
                 let expr = self.parse_expression()?;
 
                 self.expect(Token::RightParen)?;

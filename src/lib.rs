@@ -1,3 +1,17 @@
+//! Ember is a small, tree-walking interpreter for a toy scripting language.
+//!
+//! The pipeline for running a program is, in order:
+//!
+//! 1. [`lexer::Lexer`] turns raw source bytes into a stream of [`lexer::Token`]s.
+//! 2. [`parser::Parser`] turns those tokens into an [`ast::Program`] (an AST).
+//! 3. [`sema::Sema`] performs a static type-checking pass over the AST,
+//!    catching things like undefined variables and type mismatches before
+//!    anything runs.
+//! 4. [`interpreter::Interpreter`] walks the AST and actually executes it.
+//!
+//! Each stage has its own error type, and [`error::Error`] unifies them so
+//! callers of [`run`] only need to handle a single error type.
+
 pub mod ast;
 pub mod error;
 pub mod interpreter;
@@ -11,10 +25,20 @@ pub use lexer::Lexer;
 pub use parser::Parser;
 pub use sema::Sema;
 
+/// Runs Ember source code end-to-end: lex, parse, type-check, then execute.
+///
+/// This is the main entry point for embedding Ember in another program (the
+/// `ember` binary itself is just a thin wrapper around this function). Each
+/// stage is run in sequence and the first error encountered - whether it's a
+/// lexical, syntax, type, or runtime error - short-circuits the pipeline and
+/// is returned via [`Error`].
 pub fn run(source: &[u8]) -> Result<(), Error> {
     let tokens = Lexer::new(source).tokenize()?;
     let program = Parser::new(&tokens).parse()?;
 
+    // Type-check the whole program before running any of it, so that runtime
+    // execution can rely on invariants (e.g. variables are defined, operand
+    // types match) already having been verified.
     Sema::new().check(&program)?;
     Interpreter::new().run(&program)?;
 

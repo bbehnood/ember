@@ -1,33 +1,48 @@
+//! The tree-walking interpreter: executes an already type-checked
+//! [`Program`] directly against its AST, without compiling to any
+//! intermediate bytecode.
+//!
+//! Because [`crate::sema::Sema`] has already verified the program before
+//! `Interpreter::run` is called (see [`crate::run`]), this module can
+//! safely assume invariants like "every variable reference resolves" and
+//! "binary operator operands have compatible types" - violations of those
+//! invariants are treated as internal bugs via `expect`/`unreachable!()`
+//! rather than recoverable [`RuntimeError`]s.
+
 use std::collections::HashMap;
 
 use crate::ast::{BinaryOp, Expr, Program, Statement};
 
+/// Walks an AST and executes it statement by statement.
+///
+/// Variables are stored in a stack of scopes - one [`HashMap`] per lexical
+/// block - mirroring the scope structure used by [`crate::sema::Sema`]
+/// during type checking. Entering a `{ ... }` block pushes a new scope;
+/// leaving it pops that scope back off.
 pub struct Interpreter<'a> {
     scopes: Vec<HashMap<&'a [u8], Value>>,
 }
 
+/// A runtime value produced by evaluating an [`Expr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Value {
     Number(i64),
     Boolean(bool),
 }
 
+/// Errors that can occur while *executing* an already type-checked
+/// program. These are distinct from [`crate::sema::SemaError`]s: they can
+/// only be detected at runtime because they depend on actual values, not
+/// just types (e.g. dividing by a variable that happens to be zero).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RuntimeError {
+    /// The right-hand operand of `/` evaluated to zero.
     #[error("attempt to divide by zero")]
     DivideByZero,
 
+    /// An arithmetic operation (`+ - * /`) overflowed `i64`.
     #[error("arithmetic overflow")]
     ArithmeticOverflow,
-}
-
-impl std::fmt::Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Number(n) => write!(f, "{n}"),
-            Self::Boolean(b) => write!(f, "{b}"),
-        }
-    }
 }
 
 impl<'a> Interpreter<'a> {
@@ -36,6 +51,8 @@ impl<'a> Interpreter<'a> {
         Self { scopes: vec![HashMap::new()] }
     }
 
+    /// Executes an entire program, statement by statement, starting in the
+    /// single top-level (global) scope.
     pub fn run(&mut self, program: &Program<'a>) -> Result<(), RuntimeError> {
         for stmt in &program.statements {
             self.execute_statement(stmt)?;
@@ -44,6 +61,9 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    /// Executes a single statement for its side effects (there is no
+    /// notion of a statement "value" - only expressions produce
+    /// [`Value`]s).
     fn execute_statement(
         &mut self,
         stmt: &Statement<'a>,
@@ -58,6 +78,11 @@ impl<'a> Interpreter<'a> {
 
             Statement::Assign { name, value } => {
                 let value = self.eval(value)?;
+
+                // Walk outward from the innermost scope to find where
+                // `name` was declared. Sema already guarantees the
+                // variable exists somewhere on the stack, so `expect` here
+                // signals a bug in Sema rather than a user-facing error.
                 *self
                     .scopes
                     .iter_mut()
@@ -76,6 +101,14 @@ impl<'a> Interpreter<'a> {
             }
 
             Statement::Block(statements) => {
+                // Push a fresh scope for the block's local variables and
+                // pop it once the block finishes, whether it finishes
+                // normally or via an early `?` return above - since `pop`
+                // only runs after the loop, an error inside the block will
+                // actually skip the pop and leave the scope on the stack.
+                // That's harmless here because a `RuntimeError` aborts the
+                // whole `run()` call anyway, so the leftover scope is never
+                // observed.
                 self.scopes.push(HashMap::new());
                 for stmt in statements {
                     self.execute_statement(stmt)?;
@@ -113,12 +146,17 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    /// Evaluates an expression down to a [`Value`].
     fn eval(&mut self, expr: &Expr<'a>) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Number(n) => Ok(Value::Number(*n)),
 
             Expr::Boolean(b) => Ok(Value::Boolean(*b)),
 
+            // As in `Assign`, a missing variable here would mean Sema
+            // failed to catch an undefined reference - the `expect`
+            // documents that assumption rather than handling it as a
+            // recoverable error.
             Expr::Identifier(name) => Ok(self
                 .scopes
                 .iter()
@@ -131,6 +169,13 @@ impl<'a> Interpreter<'a> {
                 let right = self.eval(right)?;
 
                 match operator {
+                    // Arithmetic operators: Sema guarantees both operands
+                    // are `Value::Number`, so the `_ => unreachable!()` arm
+                    // below only exists to satisfy the match - it can never
+                    // actually be reached by a type-checked program.
+                    // `checked_*` is used throughout to turn i64 overflow
+                    // into a `RuntimeError` instead of panicking or
+                    // silently wrapping.
                     BinaryOp::Add
                     | BinaryOp::Sub
                     | BinaryOp::Mul
@@ -159,10 +204,17 @@ impl<'a> Interpreter<'a> {
                         _ => unreachable!(),
                     },
 
+                    // `==`/`!=` work on any `Value` (both operands are
+                    // guaranteed by Sema to share the same type), so unlike
+                    // the ordering comparisons below they don't need to
+                    // destructure into `Number`/`Boolean` first.
                     BinaryOp::Equal => Ok(Value::Boolean(left == right)),
 
                     BinaryOp::NotEqual => Ok(Value::Boolean(left != right)),
 
+                    // Ordering comparisons are only defined for numbers;
+                    // Sema rejects any program that would reach this with
+                    // booleans.
                     BinaryOp::Less => match (left, right) {
                         (Value::Number(left), Value::Number(right)) => {
                             Ok(Value::Boolean(left < right))
@@ -191,6 +243,11 @@ impl<'a> Interpreter<'a> {
                         _ => unreachable!(),
                     },
 
+                    // `&&`/`||` are not short-circuiting here: both `left`
+                    // and `right` were already fully evaluated above before
+                    // this match, unlike a typical short-circuit
+                    // implementation that would avoid evaluating `right`
+                    // when `left` already determines the result.
                     BinaryOp::And => Ok(
                         if left == Value::Boolean(true)
                             && right == Value::Boolean(true)
@@ -212,6 +269,16 @@ impl<'a> Interpreter<'a> {
                     ),
                 }
             }
+        }
+    }
+}
+
+/// Formats a value for `print` output, e.g. `42` or `true`.
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Number(n) => write!(f, "{n}"),
+            Self::Boolean(b) => write!(f, "{b}"),
         }
     }
 }

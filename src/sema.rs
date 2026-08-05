@@ -1,41 +1,72 @@
+//! Static semantic analysis: variable resolution and type checking.
+//!
+//! [`Sema`] walks the AST once, before the interpreter runs, verifying that
+//! every variable is declared before use and that operand types line up
+//! with what each operator expects. This lets the interpreter itself skip
+//! those checks entirely (see the `expect`-based unreachables in
+//! [`crate::interpreter`]) since a program that reaches execution has
+//! already been proven well-typed.
+
 use std::collections::HashMap;
 
 use thiserror::Error;
 
 use crate::ast::{BinaryOp, Expr, Program, Statement};
 
+/// Performs a single static-analysis pass over a [`Program`].
+///
+/// Like the interpreter, `Sema` tracks variables using a stack of scopes -
+/// one [`HashMap`] per lexical block - so that shadowing and scoping rules
+/// can be checked without actually running the program.
 pub struct Sema<'a> {
     scopes: Vec<HashMap<&'a [u8], Type>>,
 }
 
+/// The type of an Ember value, as determined statically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Number,
     Boolean,
 }
 
+/// Errors that can occur during semantic analysis.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SemaError {
+    /// A variable was referenced (in an expression or an assignment) that
+    /// hasn't been declared in the current or any enclosing scope.
     #[error("undefined variable '{0}'")]
     UndefinedVariable(String),
 
+    /// A `let` declared a variable that already exists in the *same*
+    /// scope. Shadowing across scopes is fine; only same-scope redeclaration
+    /// is rejected.
     #[error("variable '{0}' is already defined")]
     DuplicateVariable(String),
 
+    /// An operand (or condition) had a type other than the one required,
+    /// e.g. using a boolean where a number was expected.
     #[error("expected {expected}, found {found}")]
     UnexpectedType { expected: Type, found: Type },
 
+    /// The two operands of `==`/`!=` had different types, e.g. comparing a
+    /// number to a boolean.
     #[error("mismatched types: '{left}' and '{right}'")]
     MismatchedTypes { left: Type, right: Type },
 }
 
-fn name_as_string(name: &[u8]) -> String {
-    std::str::from_utf8(name)
-        .expect("The lexer only consumes valid ASCII")
-        .to_owned()
-}
-
 impl BinaryOp {
+    /// Checks that `left` and `right` are valid operand types for this
+    /// operator and returns the resulting type if so.
+    ///
+    /// The operators fall into three families with different rules:
+    /// - Arithmetic (`+ - * /`): both operands must be `Number`, result is
+    ///   `Number`.
+    /// - Ordering comparisons (`< <= > >=`): both operands must be
+    ///   `Number`, result is `Boolean`.
+    /// - Equality (`== !=`): operands may be any type as long as they
+    ///   *match each other*, result is `Boolean`.
+    /// - Logical (`&& ||`): both operands must be `Boolean`, result is
+    ///   `Boolean`.
     fn check(self, left: Type, right: Type) -> Result<Type, SemaError> {
         match self {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
@@ -85,21 +116,14 @@ impl BinaryOp {
     }
 }
 
-impl std::fmt::Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Number => write!(f, "number"),
-            Type::Boolean => write!(f, "boolean"),
-        }
-    }
-}
-
 impl<'a> Sema<'a> {
     #[must_use]
     pub fn new() -> Self {
         Self { scopes: vec![HashMap::new()] }
     }
 
+    /// Type-checks an entire program, statement by statement, starting in
+    /// the single top-level (global) scope.
     pub fn check(&mut self, program: &Program<'a>) -> Result<(), SemaError> {
         for stmt in &program.statements {
             self.check_statement(stmt)?;
@@ -108,6 +132,9 @@ impl<'a> Sema<'a> {
         Ok(())
     }
 
+    /// Type-checks a single statement, updating scope state as needed
+    /// (e.g. `let` inserts into the current scope, blocks push/pop a new
+    /// scope).
     fn check_statement(
         &mut self,
         stmt: &Statement<'a>,
@@ -116,6 +143,9 @@ impl<'a> Sema<'a> {
             Statement::Let { name, value } => {
                 let value_type = self.check_expr(value)?;
 
+                // Redeclaring a name within the *same* scope is an error,
+                // but shadowing a name from an outer scope is allowed - so
+                // this only checks the innermost (`.last()`) scope.
                 if self.scopes.last().unwrap().contains_key(name) {
                     return Err(SemaError::DuplicateVariable(name_as_string(
                         name,
@@ -130,6 +160,9 @@ impl<'a> Sema<'a> {
             Statement::Assign { name, value } => {
                 self.check_expr(value)?;
 
+                // Unlike `let`, assignment doesn't care which scope the
+                // variable lives in - it just needs to exist *somewhere* on
+                // the scope stack, searched innermost-first.
                 if !self
                     .scopes
                     .iter()
@@ -151,6 +184,10 @@ impl<'a> Sema<'a> {
             }
 
             Statement::Block(statements) => {
+                // Blocks introduce a new lexical scope: variables declared
+                // inside are dropped once the block ends, so later
+                // references to them correctly fail as undefined (see the
+                // `variable_out_of_scope_after_block` test).
                 self.scopes.push(HashMap::new());
                 for stmt in statements {
                     self.check_statement(stmt)?;
@@ -161,6 +198,15 @@ impl<'a> Sema<'a> {
                 Ok(())
             }
 
+            // NOTE: only the `condition` is type-checked here - the
+            // `statement`/`else_clause` bodies (`..`) are never recursed
+            // into. In practice this means type errors inside an `if`/
+            // `while` body (e.g. `if true { 1 + true; }`) are not caught
+            // by Sema and will only surface as a panic/`unreachable!()` at
+            // runtime in `Interpreter::eval`. This looks like a real gap
+            // rather than intentional behavior; flagging it here rather
+            // than silently "fixing" it, since that's a semantic change
+            // beyond documentation.
             Statement::If { condition, .. } => {
                 let condition = self.check_expr(condition)?;
 
@@ -174,6 +220,8 @@ impl<'a> Sema<'a> {
                 Ok(())
             }
 
+            // NOTE: same gap as `Statement::If` above - the loop body isn't
+            // type-checked, only the condition.
             Statement::While { condition, .. } => {
                 let condition = self.check_expr(condition)?;
 
@@ -195,6 +243,7 @@ impl<'a> Sema<'a> {
         }
     }
 
+    /// Type-checks an expression and returns its resulting [`Type`].
     fn check_expr(&mut self, expr: &Expr<'a>) -> Result<Type, SemaError> {
         match expr {
             Expr::Number(_) => Ok(Type::Number),
@@ -221,10 +270,33 @@ impl<'a> Sema<'a> {
     }
 }
 
+/// Formats a type for use in diagnostic messages, e.g.
+/// `expected number, found boolean`.
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Number => write!(f, "number"),
+            Type::Boolean => write!(f, "boolean"),
+        }
+    }
+}
+
 impl Default for Sema<'_> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Converts a borrowed identifier byte slice into an owned `String` for
+/// embedding in [`SemaError`] variants.
+///
+/// Panics if `name` isn't valid UTF-8, which should never happen: the
+/// lexer only ever produces identifiers from ASCII alphanumeric characters
+/// and `_` (see [`crate::lexer::Lexer::read_identifier`]).
+fn name_as_string(name: &[u8]) -> String {
+    std::str::from_utf8(name)
+        .expect("The lexer only consumes valid ASCII")
+        .to_owned()
 }
 
 #[cfg(test)]

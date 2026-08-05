@@ -1,10 +1,26 @@
+//! Converts raw Ember source bytes into a flat stream of [`Token`]s.
+//!
+//! The lexer works over `&[u8]` rather than `&str` since Ember source is
+//! restricted to ASCII; this lets identifiers and other slices borrow
+//! directly from the input without needing UTF-8 validation on every token.
+
 use thiserror::Error;
 
+/// A single lexical token, borrowing directly from the source buffer where
+/// applicable (e.g. [`Token::Identifier`]).
+///
+/// `Token` is `Copy` since every variant is small (at most a slice
+/// reference or an `i64`), which keeps the parser's lookahead (`peek`,
+/// `peek_next`) cheap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token<'a> {
+    /// An integer literal, already parsed into an `i64`.
     Number(i64),
+    /// The `true` keyword.
     True,
+    /// The `false` keyword.
     False,
+    /// An identifier, e.g. a variable name. Borrowed from the source.
     Identifier(&'a [u8]),
 
     Let,
@@ -37,58 +53,36 @@ pub enum Token<'a> {
     LeftBrace,
     RightBrace,
 
+    /// Marks the end of the input. Always the last token produced by
+    /// [`Lexer::tokenize`], which lets the parser treat "end of input" as
+    /// just another token to match against instead of a special case.
     Eof,
 }
 
+/// Scans a byte slice of Ember source and produces a stream of [`Token`]s.
+///
+/// The lexer is a simple single-pass scanner with one character of
+/// lookahead (see [`Lexer::peek`]), which is enough to disambiguate
+/// multi-character operators like `==` from `=`.
 pub struct Lexer<'a> {
+    /// The full source buffer being scanned.
     input: &'a [u8],
+    /// Byte offset of the next character to read from `input`.
     current: usize,
 }
 
+/// Errors that can occur while lexing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum LexError {
+    /// A character was encountered that isn't part of any valid token,
+    /// e.g. `@`.
     #[error("unexpected character '{0}'")]
     UnexpectedChar(char),
 
+    /// A run of digits didn't fit in an `i64` (or otherwise failed to
+    /// parse), e.g. a number with far too many digits.
     #[error("invalid number literal")]
     InvalidNumber,
-}
-
-impl std::fmt::Display for Token<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Token::Let => write!(f, "'let'"),
-            Token::Print => write!(f, "'print'"),
-            Token::If => write!(f, "'if'"),
-            Token::Else => write!(f, "'else'"),
-            Token::While => write!(f, "'while'"),
-            Token::Identifier(name) => {
-                write!(f, "identifier '{}'", String::from_utf8_lossy(name))
-            }
-            Token::Number(n) => write!(f, "number '{n}'"),
-            Token::True => write!(f, "boolean 'true'"),
-            Token::False => write!(f, "boolean 'false'"),
-            Token::Plus => write!(f, "'+'"),
-            Token::Minus => write!(f, "'-'"),
-            Token::Star => write!(f, "'*'"),
-            Token::Slash => write!(f, "'/'"),
-            Token::EqualEqual => write!(f, "'=='"),
-            Token::BangEqual => write!(f, "'!='"),
-            Token::Less => write!(f, "'<'"),
-            Token::LessEqual => write!(f, "'<='"),
-            Token::Greater => write!(f, "'>'"),
-            Token::GreaterEqual => write!(f, "'>='"),
-            Token::AndAnd => write!(f, "'&&'"),
-            Token::OrOr => write!(f, "'||'"),
-            Token::Equal => write!(f, "'='"),
-            Token::Semicolon => write!(f, "';'"),
-            Token::LeftParen => write!(f, "'('"),
-            Token::RightParen => write!(f, "')'"),
-            Token::LeftBrace => write!(f, "'{{'"),
-            Token::RightBrace => write!(f, "'}}'"),
-            Token::Eof => write!(f, "end of input"),
-        }
-    }
 }
 
 impl<'a> Lexer<'a> {
@@ -97,6 +91,11 @@ impl<'a> Lexer<'a> {
         Self { input, current: 0 }
     }
 
+    /// Scans the entire input and returns the full list of tokens,
+    /// terminated by a trailing [`Token::Eof`].
+    ///
+    /// Stops and returns an error as soon as an invalid token is
+    /// encountered; the lexer does not attempt error recovery.
     pub fn tokenize(&mut self) -> Result<Vec<Token<'a>>, LexError> {
         let mut tokens = Vec::new();
         let mut eof = false;
@@ -111,14 +110,19 @@ impl<'a> Lexer<'a> {
         Ok(tokens)
     }
 
+    /// Returns the byte at the current position without consuming it, or
+    /// `None` if the input has been exhausted.
     fn peek(&self) -> Option<u8> {
         self.input.get(self.current).copied()
     }
 
+    /// Consumes one byte, moving `current` forward.
     fn advance(&mut self) {
         self.current += 1;
     }
 
+    /// Consumes any run of whitespace at the current position. Ember has no
+    /// significant whitespace, so this is simply discarded between tokens.
     fn skip_whitespace(&mut self) {
         while let Some(ch) = self.peek()
             && ch.is_ascii_whitespace()
@@ -127,6 +131,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Scans an identifier or keyword starting at the current position.
+    ///
+    /// Assumes the caller has already checked that the current character is
+    /// a valid identifier start (alphabetic or `_`). Keywords (`let`,
+    /// `print`, `if`, etc.) are recognized here by matching the scanned text
+    /// against the keyword list; anything else becomes a
+    /// [`Token::Identifier`].
     fn read_identifier(&mut self) -> Token<'a> {
         let start = self.current;
 
@@ -155,6 +166,11 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Scans an integer literal starting at the current position.
+    ///
+    /// Only consumes ASCII digits (no decimals, signs, or exponents - unary
+    /// minus is handled by the parser, not the lexer). Returns
+    /// [`LexError::InvalidNumber`] if the digits don't fit in an `i64`.
     fn read_number(&mut self) -> Result<Token<'a>, LexError> {
         let start = self.current;
 
@@ -175,6 +191,9 @@ impl<'a> Lexer<'a> {
         Ok(Token::Number(number))
     }
 
+    /// Scans and returns the next single token from the input, skipping
+    /// leading whitespace. Returns [`Token::Eof`] once the input is
+    /// exhausted.
     fn next_token(&mut self) -> Result<Token<'a>, LexError> {
         self.skip_whitespace();
 
@@ -197,6 +216,10 @@ impl<'a> Lexer<'a> {
 
                     b'/' => Token::Slash,
 
+                    // Two-character operators are matched by peeking ahead
+                    // for the second character before falling through to
+                    // the single-character variant below (e.g. `=` vs
+                    // `==`).
                     b'=' if self.peek() == Some(b'=') => {
                         self.advance();
                         Token::EqualEqual
@@ -243,6 +266,9 @@ impl<'a> Lexer<'a> {
 
                     b'}' => Token::RightBrace,
 
+                    // Note: a lone `!` or `&` or `|` (not followed by their
+                    // paired character) falls through to here, since Ember
+                    // has no unary `!` or bitwise `&`/`|` operators.
                     _ => return Err(LexError::UnexpectedChar(ch as char)),
                 }
             }
@@ -251,6 +277,45 @@ impl<'a> Lexer<'a> {
         };
 
         Ok(token)
+    }
+}
+
+/// Formats a token the way it should appear in diagnostic messages, e.g.
+/// `expected 'if', found identifier 'x'` (see [`crate::parser::ParseError`]).
+impl std::fmt::Display for Token<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::Let => write!(f, "'let'"),
+            Token::Print => write!(f, "'print'"),
+            Token::If => write!(f, "'if'"),
+            Token::Else => write!(f, "'else'"),
+            Token::While => write!(f, "'while'"),
+            Token::Identifier(name) => {
+                write!(f, "identifier '{}'", String::from_utf8_lossy(name))
+            }
+            Token::Number(n) => write!(f, "number '{n}'"),
+            Token::True => write!(f, "boolean 'true'"),
+            Token::False => write!(f, "boolean 'false'"),
+            Token::Plus => write!(f, "'+'"),
+            Token::Minus => write!(f, "'-'"),
+            Token::Star => write!(f, "'*'"),
+            Token::Slash => write!(f, "'/'"),
+            Token::EqualEqual => write!(f, "'=='"),
+            Token::BangEqual => write!(f, "'!='"),
+            Token::Less => write!(f, "'<'"),
+            Token::LessEqual => write!(f, "'<='"),
+            Token::Greater => write!(f, "'>'"),
+            Token::GreaterEqual => write!(f, "'>='"),
+            Token::AndAnd => write!(f, "'&&'"),
+            Token::OrOr => write!(f, "'||'"),
+            Token::Equal => write!(f, "'='"),
+            Token::Semicolon => write!(f, "';'"),
+            Token::LeftParen => write!(f, "'('"),
+            Token::RightParen => write!(f, "')'"),
+            Token::LeftBrace => write!(f, "'{{'"),
+            Token::RightBrace => write!(f, "'}}'"),
+            Token::Eof => write!(f, "end of input"),
+        }
     }
 }
 
