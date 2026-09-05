@@ -13,6 +13,15 @@ use crate::{
 ///
 /// Each variant is `#[error(transparent)]`, meaning its `Display`
 /// implementation just delegates to the wrapped error's own message.
+///
+/// [`LexError`] and [`ParseError`] carry a [`crate::lexer::Position`]
+/// (line and column) pointing at the offending character or token, since
+/// both stages have direct access to source positions. [`SemaError`] and
+/// [`RuntimeError`] do not yet: they operate on the AST, which doesn't
+/// currently carry position information, so adding it there would mean
+/// threading a `Position` through every [`crate::ast::Expr`] and
+/// [`crate::ast::Statement`] variant - a larger change left for a
+/// follow-up.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum Error {
     /// A lexical error, e.g. an unexpected character.

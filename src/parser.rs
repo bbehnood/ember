@@ -12,17 +12,26 @@ use thiserror::Error;
 
 use crate::{
     ast::{BinaryOp, Expr, Program, Statement},
-    lexer::Token,
+    lexer::{Position, Token},
 };
 
 /// Consumes a slice of [`Token`]s and produces a [`crate::ast::Program`].
 ///
 /// Unlike the lexer, the parser doesn't own its input - it borrows the
-/// token slice produced by [`crate::lexer::Lexer::tokenize`] and walks it
-/// with a single cursor (`current`), using one token of lookahead
-/// (`peek_next`) where needed to disambiguate grammar rules.
-pub struct Parser<'a> {
-    tokens: &'a [Token<'a>],
+/// token slice produced by [`crate::lexer::Lexer::tokenize_with_positions`]
+/// (split into `tokens` and `positions`) and walks it with a single cursor
+/// (`current`), using one token of lookahead (`peek_next`) where needed to
+/// disambiguate grammar rules.
+///
+/// `tokens` and `positions` must be the same length, with `positions[i]`
+/// giving the source location where `tokens[i]` starts - this is exactly
+/// the shape [`crate::lexer::Lexer::tokenize_with_positions`] returns
+/// (after unzipping). This invariant is only checked with a `debug_assert`
+/// in [`Self::new`] since the parser is not exposed to untrusted input
+/// directly; callers always construct both slices from the same lexer run.
+pub struct Parser<'a, 'b> {
+    tokens: &'b [Token<'a>],
+    positions: &'b [Position],
     current: usize,
 }
 
@@ -31,24 +40,30 @@ pub struct Parser<'a> {
 pub enum ParseError {
     /// A specific token was expected at the current position but a
     /// different one was found, e.g. a missing `)` or `;`.
-    #[error("expected {expected}, found {found}")]
-    UnexpectedToken { expected: String, found: String },
+    #[error("{pos}: expected {expected}, found {found}")]
+    UnexpectedToken { expected: String, found: String, pos: Position },
 
     /// An identifier was expected (e.g. after `let`) but something else was
     /// found.
-    #[error("expected an identifier")]
-    ExpectedIdentifier,
+    #[error("{pos}: expected an identifier")]
+    ExpectedIdentifier { pos: Position },
 
     /// The start of an expression was expected but the current token can't
     /// begin one (e.g. a stray operator or closing brace).
-    #[error("expected an expression")]
-    ExpectedExpression,
+    #[error("{pos}: expected an expression")]
+    ExpectedExpression { pos: Position },
 }
 
-impl<'a> Parser<'a> {
+impl<'a, 'b> Parser<'a, 'b> {
     #[must_use]
-    pub fn new(tokens: &'a [Token]) -> Self {
-        Self { tokens, current: 0 }
+    pub fn new(tokens: &'b [Token<'a>], positions: &'b [Position]) -> Self {
+        debug_assert_eq!(
+            tokens.len(),
+            positions.len(),
+            "tokens and positions must be the same length"
+        );
+
+        Self { tokens, positions, current: 0 }
     }
 
     /// Parses the entire token stream into a [`Program`], i.e. a sequence
@@ -78,6 +93,13 @@ impl<'a> Parser<'a> {
         self.tokens[self.current + 1]
     }
 
+    /// Returns the position of the token at the current cursor position,
+    /// i.e. where [`Self::peek`]'s result starts in the source. Used to
+    /// locate errors raised at the current cursor position.
+    fn current_pos(&self) -> Position {
+        self.positions[self.current]
+    }
+
     /// Moves the cursor forward by one token.
     fn advance(&mut self) {
         self.current += 1;
@@ -93,6 +115,7 @@ impl<'a> Parser<'a> {
             Err(ParseError::UnexpectedToken {
                 expected: expected.to_string(),
                 found: self.peek().to_string(),
+                pos: self.current_pos(),
             })
         }
     }
@@ -107,7 +130,9 @@ impl<'a> Parser<'a> {
                 Ok(name)
             }
 
-            _ => Err(ParseError::ExpectedIdentifier),
+            _ => {
+                Err(ParseError::ExpectedIdentifier { pos: self.current_pos() })
+            }
         }
     }
 
@@ -420,7 +445,9 @@ impl<'a> Parser<'a> {
                 Ok(expr)
             }
 
-            _ => Err(ParseError::ExpectedExpression),
+            _ => {
+                Err(ParseError::ExpectedExpression { pos: self.current_pos() })
+            }
         }
     }
 }
@@ -430,8 +457,16 @@ mod tests {
     use super::*;
     use crate::lexer::Token;
 
-    fn parse<'a>(tokens: &'a [Token<'a>]) -> Result<Program<'a>, ParseError> {
-        Parser::new(tokens).parse()
+    /// Parses a hand-written token slice for tests that don't care about
+    /// positions. Every token is given the same placeholder `Position`
+    /// (its `Default`, i.e. `{ line: 0, col: 0 }`) since these tests
+    /// construct tokens directly rather than going through the lexer;
+    /// tests that need to assert on a `ParseError`'s position use this
+    /// same placeholder value.
+    fn parse<'a>(tokens: &[Token<'a>]) -> Result<Program<'a>, ParseError> {
+        let positions = vec![Position::default(); tokens.len()];
+
+        Parser::new(tokens, &positions).parse()
     }
 
     #[test]
@@ -548,7 +583,10 @@ mod tests {
 
         let err = parse(&tokens).unwrap_err();
 
-        assert_eq!(err, ParseError::ExpectedIdentifier);
+        assert_eq!(
+            err,
+            ParseError::ExpectedIdentifier { pos: Position::default() }
+        );
     }
 
     #[test]
@@ -563,7 +601,10 @@ mod tests {
 
         let err = parse(&tokens).unwrap_err();
 
-        assert_eq!(err, ParseError::ExpectedExpression);
+        assert_eq!(
+            err,
+            ParseError::ExpectedExpression { pos: Position::default() }
+        );
     }
 
     #[test]
@@ -583,6 +624,7 @@ mod tests {
             ParseError::UnexpectedToken {
                 expected: Token::RightParen.to_string(),
                 found: Token::Semicolon.to_string(),
+                pos: Position::default(),
             }
         );
     }
@@ -855,6 +897,38 @@ mod tests {
                     condition: Expr::Boolean(true),
                     statement: Box::new(Statement::Block(vec![])),
                 }]
+            }
+        );
+    }
+
+    /// End-to-end check (lexer + parser together) that a [`ParseError`]
+    /// reports the real position of the offending token, rather than the
+    /// placeholder `Position::default()` used by the hand-written-token
+    /// tests above.
+    #[test]
+    fn error_reports_real_position_from_lexer() {
+        use crate::lexer::Lexer;
+
+        let source = b"let x = 1\nlet y = 2;";
+        let tokens_with_pos =
+            Lexer::new(source).tokenize_with_positions().unwrap();
+
+        let tokens: Vec<Token> =
+            tokens_with_pos.iter().map(|(t, _)| *t).collect();
+        let positions: Vec<Position> =
+            tokens_with_pos.iter().map(|(_, p)| *p).collect();
+
+        let err = Parser::new(&tokens, &positions).parse().unwrap_err();
+
+        // The missing `;` after `let x = 1` is discovered once the parser
+        // reaches `let` on the second line, since that's the first token
+        // that isn't a valid continuation of the statement.
+        assert_eq!(
+            err,
+            ParseError::UnexpectedToken {
+                expected: Token::Semicolon.to_string(),
+                found: Token::Let.to_string(),
+                pos: Position { line: 2, col: 1 },
             }
         );
     }

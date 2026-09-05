@@ -6,6 +6,24 @@
 
 use thiserror::Error;
 
+/// A 1-based line/column position within the source, used to point at the
+/// location of an error in diagnostic messages.
+///
+/// Both fields are 1-based (the first character of the source is
+/// `{ line: 1, col: 1 }`) to match how editors and most compilers report
+/// positions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Position {
+    pub line: u32,
+    pub col: u32,
+}
+
+impl std::fmt::Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.line, self.col)
+    }
+}
+
 /// A single lexical token, borrowing directly from the source buffer where
 /// applicable (e.g. [`Token::Identifier`]).
 ///
@@ -71,6 +89,10 @@ pub struct Lexer<'a> {
     input: &'a [u8],
     /// Byte offset of the next character to read from `input`.
     current: usize,
+    /// 1-based line number of the next character to read.
+    line: u32,
+    /// 1-based column number of the next character to read.
+    col: u32,
 }
 
 /// Errors that can occur while lexing.
@@ -78,23 +100,23 @@ pub struct Lexer<'a> {
 pub enum LexError {
     /// A character was encountered that isn't part of any valid token,
     /// e.g. `@`.
-    #[error("unexpected character '{0}'")]
-    UnexpectedChar(char),
+    #[error("{pos}: unexpected character '{ch}'")]
+    UnexpectedChar { ch: char, pos: Position },
 
     /// A run of digits didn't fit in an `i64` (or otherwise failed to
     /// parse), e.g. a number with far too many digits.
-    #[error("invalid number literal")]
-    InvalidNumber,
+    #[error("{pos}: invalid number literal")]
+    InvalidNumber { pos: Position },
 
     /// A string literal wasn't terminated correctly, e.g. `"string`
-    #[error("unterminated string literal '{0}'")]
-    UnterminatedString(String),
+    #[error("{pos}: unterminated string literal '{string}'")]
+    UnterminatedString { string: String, pos: Position },
 }
 
 impl<'a> Lexer<'a> {
     #[must_use]
     pub fn new(input: &'a [u8]) -> Self {
-        Self { input, current: 0 }
+        Self { input, current: 0, line: 1, col: 1 }
     }
 
     /// Scans the entire input and returns the full list of tokens,
@@ -102,15 +124,32 @@ impl<'a> Lexer<'a> {
     ///
     /// Stops and returns an error as soon as an invalid token is
     /// encountered; the lexer does not attempt error recovery.
+    ///
+    /// This discards the position of each token - use
+    /// [`Self::tokenize_with_positions`] when that's needed (e.g. to give
+    /// [`crate::parser::ParseError`] a location to report).
     pub fn tokenize(&mut self) -> Result<Vec<Token<'a>>, LexError> {
+        Ok(self
+            .tokenize_with_positions()?
+            .into_iter()
+            .map(|(token, _)| token)
+            .collect())
+    }
+
+    /// Scans the entire input like [`Self::tokenize`], but also returns the
+    /// [`Position`] where each token starts, in lockstep with the returned
+    /// tokens (so `tokens[i]` starts at `positions[i]`).
+    pub fn tokenize_with_positions(
+        &mut self,
+    ) -> Result<Vec<(Token<'a>, Position)>, LexError> {
         let mut tokens = Vec::new();
         let mut eof = false;
 
         while !eof {
-            let token = self.next_token()?;
+            let (token, pos) = self.next_token()?;
             eof = token == Token::Eof;
 
-            tokens.push(token);
+            tokens.push((token, pos));
         }
 
         Ok(tokens)
@@ -122,8 +161,23 @@ impl<'a> Lexer<'a> {
         self.input.get(self.current).copied()
     }
 
-    /// Consumes one byte, moving `current` forward.
+    /// Returns the current line/column, i.e. the position of the next
+    /// character [`Self::advance`] would consume.
+    fn position(&self) -> Position {
+        Position { line: self.line, col: self.col }
+    }
+
+    /// Consumes one byte, moving `current` forward and updating `line`/`col`
+    /// to track the position of the *next* byte. A newline resets `col`
+    /// back to 1 and advances `line`; anything else just advances `col`.
     fn advance(&mut self) {
+        if self.peek() == Some(b'\n') {
+            self.line += 1;
+            self.col = 1;
+        } else {
+            self.col += 1;
+        }
+
         self.current += 1;
     }
 
@@ -177,7 +231,10 @@ impl<'a> Lexer<'a> {
     /// Only consumes ASCII digits (no decimals, signs, or exponents - unary
     /// minus is handled by the parser, not the lexer). Returns
     /// [`LexError::InvalidNumber`] if the digits don't fit in an `i64`.
-    fn read_number(&mut self) -> Result<Token<'a>, LexError> {
+    ///
+    /// `pos` is the position of the first digit, used to locate the error
+    /// if the literal is invalid.
+    fn read_number(&mut self, pos: Position) -> Result<Token<'a>, LexError> {
         let start = self.current;
 
         while let Some(ch) = self.peek() {
@@ -192,15 +249,17 @@ impl<'a> Lexer<'a> {
             .expect("Only valid ASCII gets consumed");
 
         let number: i64 =
-            string.parse().map_err(|_| LexError::InvalidNumber)?;
+            string.parse().map_err(|_| LexError::InvalidNumber { pos })?;
 
         Ok(Token::Number(number))
     }
 
     /// Scans a string literal starting from the current position.
     ///
-    /// Assumes the current character is a double quote.
-    fn read_string(&mut self) -> Result<Token<'a>, LexError> {
+    /// Assumes the current character is a double quote. `pos` is the
+    /// position of that opening quote, used to locate the error if the
+    /// string is never closed.
+    fn read_string(&mut self, pos: Position) -> Result<Token<'a>, LexError> {
         self.advance();
 
         let start = self.current;
@@ -216,10 +275,13 @@ impl<'a> Lexer<'a> {
         let string = &self.input[start..self.current];
 
         if self.peek() != Some(b'"') {
-            return Err(LexError::UnterminatedString(
-                String::from_utf8_lossy(&self.input[start - 1..self.current])
-                    .to_string(),
-            ));
+            return Err(LexError::UnterminatedString {
+                string: String::from_utf8_lossy(
+                    &self.input[start - 1..self.current],
+                )
+                .to_string(),
+                pos,
+            });
         }
 
         self.advance();
@@ -228,19 +290,21 @@ impl<'a> Lexer<'a> {
     }
 
     /// Scans and returns the next single token from the input, skipping
-    /// leading whitespace. Returns [`Token::Eof`] once the input is
-    /// exhausted.
-    fn next_token(&mut self) -> Result<Token<'a>, LexError> {
+    /// leading whitespace, along with the [`Position`] where that token
+    /// starts. Returns [`Token::Eof`] once the input is exhausted.
+    fn next_token(&mut self) -> Result<(Token<'a>, Position), LexError> {
         self.skip_whitespace();
 
+        let pos = self.position();
+
         let token = match self.peek() {
-            Some(ch) if ch.is_ascii_digit() => return self.read_number(),
+            Some(ch) if ch.is_ascii_digit() => self.read_number(pos)?,
 
             Some(ch) if ch.is_ascii_alphabetic() || ch == b'_' => {
-                return Ok(self.read_identifier());
+                self.read_identifier()
             }
 
-            Some(b'"') => self.read_string()?,
+            Some(b'"') => self.read_string(pos)?,
 
             Some(ch) => {
                 self.advance();
@@ -307,14 +371,19 @@ impl<'a> Lexer<'a> {
                     // Note: a lone `!` or `&` or `|` (not followed by their
                     // paired character) falls through to here, since Ember
                     // has no unary `!` or bitwise `&`/`|` operators.
-                    _ => return Err(LexError::UnexpectedChar(ch as char)),
+                    _ => {
+                        return Err(LexError::UnexpectedChar {
+                            ch: ch as char,
+                            pos,
+                        });
+                    }
                 }
             }
 
             None => Token::Eof,
         };
 
-        Ok(token)
+        Ok((token, pos))
     }
 }
 
@@ -471,14 +540,36 @@ mod tests {
     fn unexpected_character() {
         let mut lexer = Lexer::new(b"@");
 
-        assert_eq!(lexer.tokenize(), Err(LexError::UnexpectedChar('@')));
+        assert_eq!(
+            lexer.tokenize(),
+            Err(LexError::UnexpectedChar {
+                ch: '@',
+                pos: Position { line: 1, col: 1 }
+            })
+        );
+    }
+
+    #[test]
+    fn unexpected_character_position_on_later_line() {
+        let mut lexer = Lexer::new(b"let x = 1;\nlet y = @;");
+
+        assert_eq!(
+            lexer.tokenize(),
+            Err(LexError::UnexpectedChar {
+                ch: '@',
+                pos: Position { line: 2, col: 9 }
+            })
+        );
     }
 
     #[test]
     fn integer_overflow() {
         let mut lexer = Lexer::new(b"999999999999999999999999999999999");
 
-        assert_eq!(lexer.tokenize(), Err(LexError::InvalidNumber),);
+        assert_eq!(
+            lexer.tokenize(),
+            Err(LexError::InvalidNumber { pos: Position { line: 1, col: 1 } })
+        );
     }
 
     #[test]
@@ -592,7 +683,32 @@ mod tests {
 
         assert_eq!(
             lexer.tokenize(),
-            Err(LexError::UnterminatedString("\"hello".to_string()))
+            Err(LexError::UnterminatedString {
+                string: "\"hello".to_string(),
+                pos: Position { line: 1, col: 1 }
+            })
+        );
+    }
+
+    #[test]
+    fn tokenize_with_positions_tracks_line_and_col() {
+        let mut lexer = Lexer::new(b"let x = 1;\nprint(x);");
+
+        assert_eq!(
+            lexer.tokenize_with_positions().unwrap(),
+            vec![
+                (Token::Let, Position { line: 1, col: 1 }),
+                (Token::Identifier(b"x"), Position { line: 1, col: 5 }),
+                (Token::Equal, Position { line: 1, col: 7 }),
+                (Token::Number(1), Position { line: 1, col: 9 }),
+                (Token::Semicolon, Position { line: 1, col: 10 }),
+                (Token::Print, Position { line: 2, col: 1 }),
+                (Token::LeftParen, Position { line: 2, col: 6 }),
+                (Token::Identifier(b"x"), Position { line: 2, col: 7 }),
+                (Token::RightParen, Position { line: 2, col: 8 }),
+                (Token::Semicolon, Position { line: 2, col: 9 }),
+                (Token::Eof, Position { line: 2, col: 10 }),
+            ]
         );
     }
 }

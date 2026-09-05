@@ -33,8 +33,15 @@ pub use sema::Sema;
 /// lexical, syntax, type, or runtime error - short-circuits the pipeline and
 /// is returned via [`Error`].
 pub fn run(source: &[u8]) -> Result<(), Error> {
-    let tokens = Lexer::new(source).tokenize()?;
-    let program = Parser::new(&tokens).parse()?;
+    let tokens_with_positions = Lexer::new(source).tokenize_with_positions()?;
+
+    // The parser wants tokens and positions as two parallel slices rather
+    // than one slice of pairs, so it can index into each independently
+    // (see `Parser::current_pos`).
+    let (tokens, positions): (Vec<_>, Vec<_>) =
+        tokens_with_positions.into_iter().unzip();
+
+    let program = Parser::new(&tokens, &positions).parse()?;
 
     // Type-check the whole program before running any of it, so that runtime
     // execution can rely on invariants (e.g. variables are defined, operand
