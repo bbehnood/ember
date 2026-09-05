@@ -16,6 +16,8 @@ use thiserror::Error;
 pub enum Token<'a> {
     /// An integer literal, already parsed into an `i64`.
     Number(i64),
+    /// A string literal, parsed as a single token
+    String(&'a [u8]),
     /// The `true` keyword.
     True,
     /// The `false` keyword.
@@ -72,7 +74,7 @@ pub struct Lexer<'a> {
 }
 
 /// Errors that can occur while lexing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum LexError {
     /// A character was encountered that isn't part of any valid token,
     /// e.g. `@`.
@@ -83,6 +85,10 @@ pub enum LexError {
     /// parse), e.g. a number with far too many digits.
     #[error("invalid number literal")]
     InvalidNumber,
+
+    /// A string literal wasn't terminated correctly, e.g. `"string`
+    #[error("unterminated string literal '{0}'")]
+    UnterminatedString(String),
 }
 
 impl<'a> Lexer<'a> {
@@ -191,6 +197,36 @@ impl<'a> Lexer<'a> {
         Ok(Token::Number(number))
     }
 
+    /// Scans a string literal starting from the current position.
+    ///
+    /// Assumes the current character is a double quote.
+    fn read_string(&mut self) -> Result<Token<'a>, LexError> {
+        self.advance();
+
+        let start = self.current;
+
+        while let Some(ch) = self.peek() {
+            if ch != b'"' {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        let string = &self.input[start..self.current];
+
+        if self.peek() != Some(b'"') {
+            return Err(LexError::UnterminatedString(
+                String::from_utf8_lossy(&self.input[start - 1..self.current])
+                    .to_string(),
+            ));
+        }
+
+        self.advance();
+
+        Ok(Token::String(string))
+    }
+
     /// Scans and returns the next single token from the input, skipping
     /// leading whitespace. Returns [`Token::Eof`] once the input is
     /// exhausted.
@@ -203,6 +239,8 @@ impl<'a> Lexer<'a> {
             Some(ch) if ch.is_ascii_alphabetic() || ch == b'_' => {
                 return Ok(self.read_identifier());
             }
+
+            Some(b'"') => self.read_string()?,
 
             Some(ch) => {
                 self.advance();
@@ -294,6 +332,9 @@ impl std::fmt::Display for Token<'_> {
                 write!(f, "identifier '{}'", String::from_utf8_lossy(name))
             }
             Token::Number(n) => write!(f, "number '{n}'"),
+            Token::String(s) => {
+                write!(f, "string '{}'", String::from_utf8_lossy(s))
+            }
             Token::True => write!(f, "boolean 'true'"),
             Token::False => write!(f, "boolean 'false'"),
             Token::Plus => write!(f, "'+'"),
@@ -533,5 +574,25 @@ mod tests {
         let mut lexer = Lexer::new(b"while");
 
         assert_eq!(lexer.tokenize().unwrap(), vec![Token::While, Token::Eof])
+    }
+
+    #[test]
+    fn string() {
+        let mut lexer = Lexer::new(b"\"hello\"");
+
+        assert_eq!(
+            lexer.tokenize().unwrap(),
+            vec![Token::String(b"hello"), Token::Eof]
+        );
+    }
+
+    #[test]
+    fn unterminated_string() {
+        let mut lexer = Lexer::new(b"\"hello");
+
+        assert_eq!(
+            lexer.tokenize(),
+            Err(LexError::UnterminatedString("\"hello".to_string()))
+        );
     }
 }

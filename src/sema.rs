@@ -26,6 +26,7 @@ pub struct Sema<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Number,
+    String,
     Boolean,
 }
 
@@ -245,6 +246,8 @@ impl<'a> Sema<'a> {
         match expr {
             Expr::Number(_) => Ok(Type::Number),
 
+            Expr::String(_) => Ok(Type::String),
+
             Expr::Boolean(_) => Ok(Type::Boolean),
 
             Expr::Identifier(name) => self
@@ -273,6 +276,7 @@ impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Number => write!(f, "number"),
+            Type::String => write!(f, "string"),
             Type::Boolean => write!(f, "boolean"),
         }
     }

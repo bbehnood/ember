@@ -385,6 +385,12 @@ impl<'a> Parser<'a> {
                 Ok(Expr::Number(n))
             }
 
+            Token::String(s) => {
+                self.advance();
+
+                Ok(Expr::String(s))
+            }
+
             Token::True => {
                 self.advance();
 
@@ -741,9 +747,7 @@ mod tests {
 
         assert_eq!(
             program,
-            Program {
-                statements: vec![Statement::Print(Expr::Number(1))]
-            }
+            Program { statements: vec![Statement::Print(Expr::Number(1))] }
         );
     }
 

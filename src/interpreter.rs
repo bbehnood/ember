@@ -20,13 +20,14 @@ use crate::ast::{BinaryOp, Expr, Program, Statement};
 /// during type checking. Entering a `{ ... }` block pushes a new scope;
 /// leaving it pops that scope back off.
 pub struct Interpreter<'a> {
-    scopes: Vec<HashMap<&'a [u8], Value>>,
+    scopes: Vec<HashMap<&'a [u8], Value<'a>>>,
 }
 
 /// A runtime value produced by evaluating an [`Expr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Value {
+pub enum Value<'a> {
     Number(i64),
+    String(&'a [u8]),
     Boolean(bool),
 }
 
@@ -147,9 +148,11 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluates an expression down to a [`Value`].
-    fn eval(&mut self, expr: &Expr<'a>) -> Result<Value, RuntimeError> {
+    fn eval(&mut self, expr: &Expr<'a>) -> Result<Value<'a>, RuntimeError> {
         match expr {
             Expr::Number(n) => Ok(Value::Number(*n)),
+
+            Expr::String(s) => Ok(Value::String(s)),
 
             Expr::Boolean(b) => Ok(Value::Boolean(*b)),
 
@@ -274,10 +277,11 @@ impl<'a> Interpreter<'a> {
 }
 
 /// Formats a value for `print` output, e.g. `42` or `true`.
-impl std::fmt::Display for Value {
+impl<'a> std::fmt::Display for Value<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Number(n) => write!(f, "{n}"),
+            Self::String(s) => write!(f, "{}", String::from_utf8_lossy(s)),
             Self::Boolean(b) => write!(f, "{b}"),
         }
     }
@@ -294,7 +298,7 @@ mod tests {
     use super::*;
     use crate::ast::{BinaryOp, Expr, Program, Statement};
 
-    fn eval(expr: Expr<'static>) -> Result<Value, RuntimeError> {
+    fn eval(expr: Expr<'static>) -> Result<Value<'static>, RuntimeError> {
         Interpreter::new().eval(&expr)
     }
 

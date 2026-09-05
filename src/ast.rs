@@ -13,6 +13,10 @@ pub enum Expr<'a> {
 
     /// An integer literal, e.g. `42`.
     Number(i64),
+
+    /// A string literal, e.g. `"hello"`
+    String(&'a [u8]),
+
     /// A boolean literal, e.g. `true` or `false`.
     Boolean(bool),
 
@@ -53,19 +57,13 @@ pub enum Statement<'a> {
     ///
     /// It is an error to declare a variable that already exists in the same
     /// scope (see [`crate::sema::SemaError::DuplicateVariable`]).
-    Let {
-        name: &'a [u8],
-        value: Expr<'a>,
-    },
+    Let { name: &'a [u8], value: Expr<'a> },
 
     /// Reassigns an existing variable, e.g. `x = 2;`.
     ///
     /// The variable must already be defined in the current or an enclosing
     /// scope (see [`crate::sema::SemaError::UndefinedVariable`]).
-    Assign {
-        name: &'a [u8],
-        value: Expr<'a>,
-    },
+    Assign { name: &'a [u8], value: Expr<'a> },
 
     /// Evaluates an expression and prints its value, e.g. `print(x);`.
     Print(Expr<'a>),
@@ -85,10 +83,7 @@ pub enum Statement<'a> {
 
     /// A `while condition { ... }` loop. `condition` is re-evaluated before
     /// each iteration and must evaluate to a boolean.
-    While {
-        condition: Expr<'a>,
-        statement: Box<Statement<'a>>,
-    },
+    While { condition: Expr<'a>, statement: Box<Statement<'a>> },
 
     /// An expression evaluated purely for its side effects, e.g. a bare
     /// `1 + 2;`. The resulting value is discarded.
